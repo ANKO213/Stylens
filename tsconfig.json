@@ -38,6 +38,7 @@
   ],
   "exclude": [
     "node_modules",
-    "Hero Page for SaaS Project"
+    "Hero Page for SaaS Project",
+    "User Profile Page Design"
   ]
 }
