@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import { Pin } from "@/lib/mock-data";
 import { Download, MoreHorizontal, Share2, Sparkles } from "lucide-react";
@@ -10,11 +11,16 @@ interface PinCardProps {
 }
 
 export function PinCard({ pin, onClick }: PinCardProps) {
+    const [isVisible, setIsVisible] = useState(true);
+
+    if (!isVisible) return null;
+
     return (
         <div
             className="mb-4 break-inside-avoid relative group rounded-2xl overflow-hidden cursor-zoom-in"
             onClick={onClick}
         >
+            {/* Image */}
             {/* Image */}
             <img
                 src={pin.imageUrl}
@@ -22,6 +28,7 @@ export function PinCard({ pin, onClick }: PinCardProps) {
                 className="w-full h-auto object-cover rounded-2xl"
                 loading="lazy"
                 style={{ minHeight: '150px' }}
+                onError={() => setIsVisible(false)}
             />
 
             {/* Overlay - Slightly less dark for visibility */}

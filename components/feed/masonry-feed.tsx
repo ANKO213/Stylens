@@ -38,30 +38,69 @@ export function MasonryFeed() {
             }
 
             try {
-                const { data, error } = await supabase
+                const CORRECT_STORAGE_URL = "https://dgsvyelmvhybhphdxnvk.supabase.co/storage/v1/object/public/style-images/styles/";
+
+                // 1. Fetch DB Data
+                const dbPromise = supabase
                     .from('styles')
                     .select('*')
                     .order('created_at', { ascending: false });
 
-                if (error) {
-                    console.error("Error fetching styles:", error);
-                    // Fallback or empty state
+                // 2. Fetch Storage Data (to find orphans)
+                const storagePromise = supabase.storage
+                    .from('style-images')
+                    .list('styles', { limit: 100, offset: 0, sortBy: { column: 'created_at', order: 'desc' } });
+
+                const [dbResult, storageResult] = await Promise.all([dbPromise, storagePromise]);
+
+                let allPins: Pin[] = [];
+
+                // Process DB Results
+                if (dbResult.data && dbResult.data.length > 0) {
+                    allPins = dbResult.data.map((style: any) => {
+                        const filename = style.image_url ? style.image_url.split('/').pop() : 'unknown.jpg';
+                        // Fix URL to always point to the correct storage folder
+                        const fixedUrl = `${CORRECT_STORAGE_URL}${filename}`;
+
+                        return {
+                            id: style.id,
+                            title: style.title || "Untitled",
+                            imageUrl: fixedUrl,
+                            author: "Pintero",
+                            prompt: style.prompt || style.title
+                        };
+                    });
                 }
 
-                if (data && data.length > 0) {
-                    // Map DB style to Pin interface
-                    const mappedPins = data.map((style: any) => ({
-                        id: style.id,
-                        title: style.title,
-                        imageUrl: style.image_url,
-                        author: "Pintero", // or style.author if columns exist
-                        prompt: style.prompt || style.title // Use DB prompt or fallback to title
-                    }));
-                    // Shuffle the pins for random order on refresh
-                    const shuffledPins = mappedPins.sort(() => Math.random() - 0.5);
-                    setPins(shuffledPins);
+                // Process Storage Results
+                if (storageResult.data && storageResult.data.length > 0) {
+                    const dbImageUrls = new Set(allPins.map(p => p.imageUrl));
+
+                    const storagePins: Pin[] = storageResult.data
+                        .filter((file: any) => file.name !== '.emptyFolderPlaceholder')
+                        .map((file: any) => {
+                            // Construct strict URL for storage files too
+                            const fixedUrl = `${CORRECT_STORAGE_URL}${file.name}`;
+
+                            return {
+                                id: file.id || file.name,
+                                title: file.name,
+                                imageUrl: fixedUrl,
+                                author: "Storage",
+                                prompt: "Recovered from storage"
+                            };
+                        })
+                        // Filter out if this URL is already in the DB list
+                        .filter((pin: Pin) => !dbImageUrls.has(pin.imageUrl));
+
+                    // Merge orphans
+                    allPins = [...allPins, ...storagePins];
+                }
+
+                if (allPins.length > 0) {
+                    setPins(allPins);
                 } else {
-                    // If DB empty, show fallback so it's not blank
+                    // Only use mock if absolutely nothing found in DB OR Storage
                     setPins(generateMockPins(10));
                 }
             } catch (e) {

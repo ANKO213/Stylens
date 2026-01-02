@@ -20,7 +20,14 @@ export default async function Home(props: {
       .order('created_at', { ascending: false })
       .limit(15);
 
-    const carouselImages = styles?.map(s => s.image_url) || [];
+    const CORRECT_STORAGE_URL = "https://dgsvyelmvhybhphdxnvk.supabase.co/storage/v1/object/public/style-images/styles/";
+
+    const carouselImages = styles?.map(s => {
+      // Extract filename from existing URL (whether it's good or bad)
+      // e.g. .../styles/123.jpg OR 123.jpg
+      const filename = s.image_url.split('/').pop();
+      return `${CORRECT_STORAGE_URL}${filename}`;
+    }) || [];
 
     return <Hero images={carouselImages.length > 0 ? carouselImages : undefined} />;
   }

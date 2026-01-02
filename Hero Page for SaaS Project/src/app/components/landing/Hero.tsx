@@ -2,16 +2,16 @@ import React from "react";
 import { CurvedCarousel } from "./CurvedCarousel";
 import { Button } from "../ui/button";
 import { ArrowRight, Sparkles } from "lucide-react";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 
 export function Hero() {
   return (
     <div className="relative min-h-screen bg-black overflow-hidden flex flex-col justify-center items-center pt-24">
-        
+
       <div className="container mx-auto px-6 z-10 flex flex-col items-center">
         {/* Text Content */}
         <div className="text-center max-w-4xl mx-auto mb-[70px] mt-[15px] relative z-20 mr-[0px] ml-[0px]">
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
@@ -20,8 +20,8 @@ export function Hero() {
             <Sparkles size={14} />
             <span className="text-[rgba(197,188,227,0)] bg-clip-text bg-gradient-to-t from-[#A47CF3] to-[#683FEA]">AI-Powered Magic</span>
           </motion.div>
-          
-          <motion.h1 
+
+          <motion.h1
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.1 }}
@@ -33,17 +33,17 @@ export function Hero() {
             </span>
           </motion.h1>
 
-          <motion.p 
+          <motion.p
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.2 }}
             className="text-lg md:text-xl text-gray-400 mb-8 max-w-2xl mx-auto"
           >
-            Turn your selfies into high-quality professional visuals in seconds. 
+            Turn your selfies into high-quality professional visuals in seconds.
             No design skills needed—just upload and let AI do the rest.
           </motion.p>
 
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.3 }}
@@ -61,20 +61,20 @@ export function Hero() {
 
         {/* Carousel Background */}
         <div className="w-full flex items-center justify-center mt-[-250px] md:mt-[-200px] mb-[-100px] relative z-0">
-             <CurvedCarousel />
+          <CurvedCarousel />
         </div>
-        
+
         {/* Footer/Trust section simplified */}
         <div className="mt-20 border-t border-white/10 w-full py-8 relative z-10 bg-black">
-            <p className="text-center text-gray-500 text-sm mb-6">TRUSTED BY CREATORS FROM</p>
-            <div className="flex flex-wrap justify-center gap-8 md:gap-16 opacity-50 grayscale">
-                {/* Mock Logos */}
-                <div className="text-white font-bold text-xl">NEXUS</div>
-                <div className="text-white font-bold text-xl">VORTEX</div>
-                <div className="text-white font-bold text-xl">LUMINA</div>
-                <div className="text-white font-bold text-xl">QUANTUM</div>
-                <div className="text-white font-bold text-xl">ORBIT</div>
-            </div>
+          <p className="text-center text-gray-500 text-sm mb-6">TRUSTED BY CREATORS FROM</p>
+          <div className="flex flex-wrap justify-center gap-8 md:gap-16 opacity-50 grayscale">
+            {/* Mock Logos */}
+            <div className="text-white font-bold text-xl">NEXUS</div>
+            <div className="text-white font-bold text-xl">VORTEX</div>
+            <div className="text-white font-bold text-xl">LUMINA</div>
+            <div className="text-white font-bold text-xl">QUANTUM</div>
+            <div className="text-white font-bold text-xl">ORBIT</div>
+          </div>
         </div>
       </div>
     </div>
