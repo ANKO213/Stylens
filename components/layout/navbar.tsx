@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import Image from "next/image";
 import { User } from "@supabase/supabase-js";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -48,8 +49,7 @@ export function Navbar({ user: initialUser }: NavbarProps) {
             <div className="fixed top-6 left-0 right-0 z-50 flex items-center justify-between px-6 md:px-12 pointer-events-none">
                 {/* Logo */}
                 <Link href="/" className="flex items-center gap-2 pointer-events-auto">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={logo} alt="FaceAI Logo" className="w-8 h-8 object-contain" />
+                    <Image src={logo} alt="FaceAI Logo" width={32} height={32} className="w-8 h-8 object-contain" />
                     <span className="text-white font-bold text-lg tracking-tight">Stylens</span>
                 </Link>
 
