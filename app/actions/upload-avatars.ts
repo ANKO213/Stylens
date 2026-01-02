@@ -72,7 +72,8 @@ export async function uploadAvatars(formData: FormData) {
         const uploadFile = async (file: File, prefix: string) => {
             const buffer = Buffer.from(await file.arrayBuffer());
             const fileExt = file.name.split('.').pop();
-            const filename = `${prefix}.${fileExt}`; // e.g. main.jpg, side1.png
+            const timestamp = Date.now();
+            const filename = `${prefix}-${timestamp}.${fileExt}`; // e.g. main-170000000.jpg
             const filePath = `${userFolder}/${filename}`;
 
             const { error: uploadError } = await supabaseAdmin
