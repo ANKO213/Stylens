@@ -78,17 +78,18 @@ export function GenerationModal({ open, onOpenChange, pin, user, userAvatar }: G
 
         try {
             // Construct potential side photo URLs
-            const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://your-project.supabase.co";
-            
+            // R2 Migration: We use the R2 Public Domain
+            const r2Domain = "https://pub-7910916370d44ba2875c0c6122ac584f.r2.dev";
+
             // STRICT LOGIC: Files are always at `avatars/{email}/...`
-            // We do NOT use the path from `userAvatar` because `userAvatar` might have a cache buster or old path.
-            // We trust the structure.
-            
             const userRef = user.email || user.id; // Should be email per new logic
             const timestamp = new Date().getTime(); // Cache buster for the fetch
-            
-            const side1Url = `${supabaseUrl}/storage/v1/object/public/avatars/${userRef}/side1?t=${timestamp}`;
-            const side2Url = `${supabaseUrl}/storage/v1/object/public/avatars/${userRef}/side2?t=${timestamp}`;
+
+            // Remove trailing slash if present (though hardcoded string doesn't have it)
+            const domain = r2Domain.replace(/\/$/, "");
+
+            const side1Url = `${domain}/avatars/${userRef}/side1?t=${timestamp}`;
+            const side2Url = `${domain}/avatars/${userRef}/side2?t=${timestamp}`;
 
             const additionalFaces = [side1Url, side2Url];
 
