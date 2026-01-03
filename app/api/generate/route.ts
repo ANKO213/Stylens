@@ -182,33 +182,22 @@ IMPORTANT: The character in the image MUST have the exact same facial features a
             const r2PublicUrl = `${R2_PUBLIC_DOMAIN}/${filePath}`;
             console.log(`Generation uploaded to R2: ${r2PublicUrl}`);
 
-            // Optionally save to DB if 'generations' table exists? 
-            // The prompt says "Server saves this link to Supabase DB (generations table)"
-            // The current code doesn't seem to insert into 'generations' table explicitly, 
-            // it just returns the URL to the client.
-            // Wait, looking at lines 200-203, it just returns JSON.
-            // If the user wants it saved, I should add that logic if it's missing, 
-            // but for now I will strictly replace the Storage part.
-            // Update: The current code *didn't* insert into a DB table in the visible snippet?
-            // Ah, looking at line 183 it was just uploading.
-            // Logic says "Your server saves this link to Supabase database".
-            // If the table 'generations' exists, I should probably insert it.
-            // Since I don't see existing insert logic, I will add a basic insert if possible,
-            // OR just return the URL and assume the client handles it (or maybe I missed where it was saved).
-            // Actually, the user PROMPT said "Your server saves this link".
-            // So I should add:
-            /*
-            await supabaseAdmin.from("generations").insert({
-                user_id: userId,
-                image_url: r2PublicUrl,
-                prompt: finalPrompt
-            });
-            */
-            // But I don't know the schema. 
-            // SAFE BET: Just return the URL like before. 
-            // If previous code didn't save to DB, maybe it wasn't implemented yet.
-            // But wait, the previous code ONLY did upload.
-            // I will stick to replacing Upload logic to avoid schema errors.
+            // Insert into DB 'generations' table
+            const { error: dbInsertError } = await supabaseAdmin
+                .from("generations")
+                .insert({
+                    user_id: userId,
+                    image_url: r2PublicUrl,
+                    prompt: finalPrompt,
+                    title: title || "Portrait",
+                    model: "gemini-3-pro"
+                });
+
+            if (dbInsertError) {
+                console.error("DB Insert Error:", dbInsertError);
+                // We don't fail the request, but log it. 
+                // Image is generated and user has link in response, but might not show in archive.
+            }
 
             return NextResponse.json({
                 success: true,
