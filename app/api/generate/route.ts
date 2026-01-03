@@ -99,16 +99,32 @@ IMPORTANT: The character in the image MUST have the exact same facial features a
             });
         }
 
-        // Add Additional Face Images if available
+        // Add Additional Face Images if available (VALIDATE EXISTENCE FIRST)
         if (additionalFaceUrls && Array.isArray(additionalFaceUrls)) {
-            additionalFaceUrls.forEach((url: string) => {
-                if (url) {
-                    messages[0].content.push({
-                        "type": "image_url",
-                        "image_url": { "url": url }
-                    });
+            const validUrls: string[] = [];
+
+            // Validate URLs in parallel to save time
+            await Promise.all(additionalFaceUrls.map(async (url: string) => {
+                if (!url) return;
+                try {
+                    // Quick check if file exists (HEAD)
+                    const check = await fetch(url, { method: "HEAD" });
+                    if (check.ok) {
+                        validUrls.push(url);
+                    }
+                } catch (e) {
+                    // Ignore invalid
                 }
+            }));
+
+            validUrls.forEach((url) => {
+                messages[0].content.push({
+                    "type": "image_url",
+                    "image_url": { "url": url }
+                });
             });
+
+            console.log(`Validated ${validUrls.length}/${additionalFaceUrls.length} side images.`);
         }
 
         const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
