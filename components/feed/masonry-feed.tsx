@@ -72,27 +72,6 @@ export function MasonryFeed() {
                     });
                 }
 
-                // 2. Process Storage Results (Only add if filename not already in Map)
-                if (storageResult.data && storageResult.data.length > 0) {
-                    storageResult.data.forEach((file: any) => {
-                        if (file.name === '.emptyFolderPlaceholder') return;
-
-                        const filename = file.name;
-
-                        if (!uniquePinsMap.has(filename)) {
-                            const fixedUrl = `${CORRECT_STORAGE_URL}${filename}`;
-                            uniquePinsMap.set(filename, {
-                                id: file.id || file.name,
-                                title: file.name,
-                                imageUrl: fixedUrl,
-                                author: "Storage",
-                                prompt: "Recovered from storage",
-                                heightRatio: 1.5
-                            });
-                        }
-                    });
-                }
-
                 let finalPins = Array.from(uniquePinsMap.values());
 
                 // 3. Shuffle (Fisher-Yates)
