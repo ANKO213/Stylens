@@ -35,8 +35,12 @@ export async function uploadAvatars(formData: FormData) {
         const targetFolder = email;
         const legacyFolder = userId;
 
+        console.log(`[AvatarUpload] Start. Email: ${email}, ID: ${userId}`);
+        console.log(`[AvatarUpload] Target Folder: ${targetFolder}`);
+        console.log(`[AvatarUpload] Legacy Folder: ${legacyFolder}`);
+
         // 3. CLEANUP PHASE
-        // We act on both folders to ensure no residue from previous versions.
+        // ...
         const foldersToClean = [targetFolder, legacyFolder];
 
         for (const folder of foldersToClean) {
@@ -47,14 +51,18 @@ export async function uploadAvatars(formData: FormData) {
                 .list(folder);
 
             if (listError) {
-                console.error(`Cleanup List Error (${folder}):`, listError);
+                console.error(`[AvatarUpload] Cleanup List Error (${folder}):`, listError);
                 continue;
             }
+
+            console.log(`[AvatarUpload] Files in ${folder}:`, files?.length || 0);
 
             if (files && files.length > 0) {
                 const pathsToRemove = files
                     .filter(f => f.name !== '.emptyFolderPlaceholder')
                     .map(f => `${folder}/${f.name}`);
+
+                console.log(`[AvatarUpload] Deleting from ${folder}:`, pathsToRemove);
 
                 if (pathsToRemove.length > 0) {
                     const { error: removeError } = await supabaseAdmin
@@ -63,7 +71,9 @@ export async function uploadAvatars(formData: FormData) {
                         .remove(pathsToRemove);
 
                     if (removeError) {
-                        console.error(`Cleanup Remove Error (${folder}):`, removeError);
+                        console.error(`[AvatarUpload] Cleanup Remove Error (${folder}):`, removeError);
+                    } else {
+                        console.log(`[AvatarUpload] Cleanup success for ${folder}`);
                     }
                 }
             }
@@ -84,6 +94,8 @@ export async function uploadAvatars(formData: FormData) {
             const fileName = name; // Deterministic: "main", "side1", "side2"
             const filePath = `${targetFolder}/${fileName}`;
 
+            console.log(`[AvatarUpload] Uploading ${name} to ${filePath}, size: ${buffer.length}`);
+
             // Upsert
             const { error: uploadError } = await supabaseAdmin
                 .storage
@@ -101,6 +113,7 @@ export async function uploadAvatars(formData: FormData) {
                 .from(bucketName)
                 .getPublicUrl(filePath);
 
+            console.log(`[AvatarUpload] Success: ${publicUrl}`);
             return publicUrl;
         };
 
