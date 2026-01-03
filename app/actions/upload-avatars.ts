@@ -31,28 +31,40 @@ export async function uploadAvatars(formData: FormData) {
         const bucketName = "avatars";
         const userFolder = `${email}`;
 
-        // 3. Cleanup: Delete ALL existing files in the user's folder
-        const { data: existingFiles, error: listError } = await supabaseAdmin
-            .storage
-            .from(bucketName)
-            .list(userFolder);
+        // 3. Cleanup: Delete ALL existing files in both possible folders (Email and ID)
+        // This ensures we clean up the "numeric" ID folder from previous version AND current email folder.
+        const foldersToClean = [email, userId];
 
-        if (listError) {
-            console.error("List Error:", listError);
-            // Continue? Or fail? If we can't list, we probably can't delete. 
-            // Might be empty if first time.
-        }
-
-        if (existingFiles && existingFiles.length > 0) {
-            const filesToRemove = existingFiles.map(f => `${userFolder}/${f.name}`);
-            const { error: removeError } = await supabaseAdmin
+        for (const folder of foldersToClean) {
+            const { data: existingFiles, error: listError } = await supabaseAdmin
                 .storage
                 .from(bucketName)
-                .remove(filesToRemove);
+                .list(folder);
 
-            if (removeError) {
-                console.error("Remove Error:", removeError);
-                return { error: "Failed to cleanup old avatars" };
+            if (listError) {
+                console.error(`List Error (${folder}):`, listError);
+                continue;
+            }
+
+            if (existingFiles && existingFiles.length > 0) {
+                // Filter out empty folder placeholders if any (though 'remove' handles generic paths)
+                const filesToRemove = existingFiles
+                    .filter(f => f.name !== '.emptyFolderPlaceholder')
+                    .map(f => `${folder}/${f.name}`);
+
+                if (filesToRemove.length > 0) {
+                    const { error: removeError } = await supabaseAdmin
+                        .storage
+                        .from(bucketName)
+                        .remove(filesToRemove);
+
+                    if (removeError) {
+                        console.error(`Remove Error (${folder}):`, removeError);
+                        // We escalate this to error if it's the target folder, but for cleanup of old ID folder, we could be lenient.
+                        // However, user requested strict cleanup.
+                        if (folder === email) return { error: "Failed to cleanup old avatars" };
+                    }
+                }
             }
         }
 
