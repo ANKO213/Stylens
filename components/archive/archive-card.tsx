@@ -15,23 +15,20 @@ interface ArchiveCardProps {
 }
 
 export function ArchiveCard({ generation, onShare }: ArchiveCardProps) {
-    const handleDownload = async (e: React.MouseEvent) => {
+    const handleDownload = (e: React.MouseEvent) => {
         e.stopPropagation();
 
-        try {
-            const response = await fetch(generation.imageUrl);
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${generation.title || 'generation'}.png`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-        } catch (error) {
-            console.error('Download failed:', error);
-        }
+        // Use server-side proxy to bypass CORS and force download
+        const filename = `${generation.title || 'generation'}.png`;
+        const downloadUrl = `/api/download?url=${encodeURIComponent(generation.imageUrl)}&filename=${encodeURIComponent(filename)}`;
+
+        // Trigger download via temporary link (or just window location if it's a direct file stream)
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = filename; // Hint to browser
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
     };
 
     return (
