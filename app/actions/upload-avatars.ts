@@ -74,9 +74,13 @@ export async function uploadAvatars(formData: FormData) {
         // Helper
         const processUpload = async (file: File, name: string) => {
             const buffer = Buffer.from(await file.arrayBuffer());
-            const fileName = name; // "main", "side1", "side2"
+
+            // Extract extension
+            const ext = file.name.split('.').pop() || "jpg"; // default to jpg if none
+            const fileName = `${name}.${ext}`; // "main.jpg", "side1.png"
+
             // Path: avatars/{email}/{fileName}
-            const key = `${folderPrefix}${fileName}`; // e.g. avatars/bob@mail.com/main
+            const key = `${folderPrefix}${fileName}`;
 
             console.log(`[AvatarUpload R2] Uploading ${name} to ${key}`);
 
@@ -85,8 +89,6 @@ export async function uploadAvatars(formData: FormData) {
                 Key: key,
                 Body: buffer,
                 ContentType: file.type,
-                // ACL is often not supported in R2 or defaults to private, but R2 is bucket-level public usually if configured
-                // We assume bucket public access or R2.dev domain access
             }));
 
             // Construct Public URL
