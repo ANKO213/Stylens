@@ -15,7 +15,7 @@ export async function uploadAvatars(formData: FormData) {
     const email = user.email;
     const userId = user.id;
 
-    // 2. Initialize Admin Client
+    // 2. Initialize Admin Client (for DB updates)
     const supabaseAdmin = createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -28,44 +28,38 @@ export async function uploadAvatars(formData: FormData) {
     );
 
     try {
-        const bucketName = "avatars";
-        const targetFolder = email; // User requirement: Folder name is email
+        const { r2, R2_BUCKET_NAME, R2_PUBLIC_DOMAIN } = await import("@/lib/r2");
+        const { PutObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } = await import("@aws-sdk/client-s3");
 
-        console.log(`[AvatarUpload] Start. User: ${email}`);
+        // --- STRICT FOLDER ENFORCEMENT ---
+        // R2 Structure: avatars/{email}/
+        const folderPrefix = `avatars/${email}/`;
+
+        console.log(`[AvatarUpload R2] Start. User: ${email}`);
 
         // 3. CLEANUP PHASE: "Clean Slate"
         // List everything in the user's folder
-        const { data: existingFiles, error: listError } = await supabaseAdmin
-            .storage
-            .from(bucketName)
-            .list(targetFolder);
+        const listCommand = new ListObjectsV2Command({
+            Bucket: R2_BUCKET_NAME,
+            Prefix: folderPrefix
+        });
 
-        if (listError) {
-            console.error(`[AvatarUpload] List Error:`, listError);
-            // We continue, assuming maybe folder doesn't exist yet
-        }
+        const listResponse = await r2.send(listCommand);
 
-        if (existingFiles && existingFiles.length > 0) {
-            // Filter out placeholder if any
-            const filesToDelete = existingFiles
-                .filter(f => f.name !== '.emptyFolderPlaceholder')
-                .map(f => `${targetFolder}/${f.name}`);
+        if (listResponse.Contents && listResponse.Contents.length > 0) {
+            console.log(`[AvatarUpload R2] Found ${listResponse.Contents.length} old files. Deleting...`);
+            const objectsToDelete = listResponse.Contents.map(obj => ({ Key: obj.Key }));
 
-            if (filesToDelete.length > 0) {
-                console.log(`[AvatarUpload] Cleaning up ${filesToDelete.length} old files...`);
-                const { error: deleteError } = await supabaseAdmin
-                    .storage
-                    .from(bucketName)
-                    .remove(filesToDelete);
-                
-                if (deleteError) {
-                    console.error("Cleanup failed:", deleteError);
-                    // Critical? Maybe not, upsert might handle it, but user wants strict cleanup.
-                    // We'll log and proceed with upsert=true.
-                } else {
-                     console.log("[AvatarUpload] Cleanup successful.");
+            const deleteCommand = new DeleteObjectsCommand({
+                Bucket: R2_BUCKET_NAME,
+                Delete: {
+                    Objects: objectsToDelete,
+                    Quiet: true
                 }
-            }
+            });
+
+            await r2.send(deleteCommand);
+            console.log("[AvatarUpload R2] Cleanup successful.");
         }
 
         // 4. UPLOAD PHASE
@@ -77,37 +71,40 @@ export async function uploadAvatars(formData: FormData) {
 
         let finalAvatarUrl = "";
 
+        // Helper
         const processUpload = async (file: File, name: string) => {
             const buffer = Buffer.from(await file.arrayBuffer());
-            const fileName = name; // Strict naming: "main", "side1", "side2"
-            const filePath = `${targetFolder}/${fileName}`;
-            
-            console.log(`[AvatarUpload] Uploading ${name} to ${filePath}`);
+            const fileName = name; // "main", "side1", "side2"
+            // Path: avatars/{email}/{fileName}
+            const key = `${folderPrefix}${fileName}`; // e.g. avatars/bob@mail.com/main
 
-            const { error: uploadError } = await supabaseAdmin
-                .storage
-                .from(bucketName)
-                .upload(filePath, buffer, {
-                    contentType: file.type,
-                    upsert: true
-                });
+            console.log(`[AvatarUpload R2] Uploading ${name} to ${key}`);
 
-            if (uploadError) throw new Error(`Upload failed for ${fileName}: ${uploadError.message}`);
+            await r2.send(new PutObjectCommand({
+                Bucket: R2_BUCKET_NAME,
+                Key: key,
+                Body: buffer,
+                ContentType: file.type,
+                // ACL is often not supported in R2 or defaults to private, but R2 is bucket-level public usually if configured
+                // We assume bucket public access or R2.dev domain access
+            }));
 
-            const { data: { publicUrl } } = supabaseAdmin
-                .storage
-                .from(bucketName)
-                .getPublicUrl(filePath);
-            
+            // Construct Public URL
+            // Ensure no double slashes if domain ends with slash
+            const domain = R2_PUBLIC_DOMAIN.replace(/\/$/, "");
+            const publicUrl = `${domain}/${key}`;
+
+            console.log(`[AvatarUpload R2] Success: ${publicUrl}`);
             return publicUrl;
         };
 
-        // Upload Main
+        // A. Upload Main
         const mainUrl = await processUpload(mainFile, "main");
-        // Add cache buster for DB URL only (so frontend sees change immediately)
-        finalAvatarUrl = `${mainUrl}?t=${Date.now()}`; 
 
-        // Upload Sides
+        // With R2, we might still want a cache buster parameter for the DB just in case Cloudflare caches aggressively at the edge
+        finalAvatarUrl = `${mainUrl}?t=${Date.now()}`;
+
+        // B. Upload Sides
         if (side1File) await processUpload(side1File, "side1");
         if (side2File) await processUpload(side2File, "side2");
 
@@ -119,11 +116,11 @@ export async function uploadAvatars(formData: FormData) {
 
         if (dbError) throw dbError;
 
-        console.log("[AvatarUpload] Complete. DB updated.");
+        console.log("[AvatarUpload R2] Complete. DB updated.");
         return { success: true, avatarUrl: finalAvatarUrl };
 
     } catch (error: any) {
-        console.error("Upload Avatars Fatal Error:", error);
+        console.error("Upload Avatars Fatal Error (R2):", error);
         return { error: error.message || "Server upload failed" };
     }
 }
