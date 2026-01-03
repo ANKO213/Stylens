@@ -41,17 +41,13 @@ export function MasonryFeed() {
                 const CORRECT_STORAGE_URL = "https://dgsvyelmvhybhphdxnvk.supabase.co/storage/v1/object/public/style-images/styles/";
 
                 // 1. Fetch DB Data
-                const dbPromise = supabase
+                const { data, error } = await supabase
                     .from('styles')
                     .select('*')
                     .order('created_at', { ascending: false });
 
-                // 2. Fetch Storage Data (to find orphans)
-                const storagePromise = supabase.storage
-                    .from('style-images')
-                    .list('styles', { limit: 100, offset: 0, sortBy: { column: 'created_at', order: 'desc' } });
+                if (error) throw error;
 
-                const [dbResult, storageResult] = await Promise.all([dbPromise, storagePromise]);
 
                 const uniquePinsMap = new Map<string, Pin>();
 
