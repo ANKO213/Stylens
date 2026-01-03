@@ -23,8 +23,10 @@ export default async function Home(props: {
     const CORRECT_STORAGE_URL = "https://dgsvyelmvhybhphdxnvk.supabase.co/storage/v1/object/public/style-images/styles/";
 
     const carouselImages = styles?.map(s => {
-      // Extract filename from existing URL (whether it's good or bad)
-      // e.g. .../styles/123.jpg OR 123.jpg
+      // Logic: If URL is full (R2/Supabase), use it. If filename only, append Supabase path.
+      if (s.image_url?.startsWith("http")) {
+        return s.image_url;
+      }
       const filename = s.image_url.split('/').pop();
       return `${CORRECT_STORAGE_URL}${filename}`;
     }) || [];

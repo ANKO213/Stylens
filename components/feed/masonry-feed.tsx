@@ -57,8 +57,21 @@ export function MasonryFeed() {
                 // 1. Process DB Results
                 if (data && data.length > 0) {
                     data.forEach((style: any) => {
+                        let fixedUrl = style.image_url;
                         const filename = style.image_url ? style.image_url.split('/').pop() : 'unknown.jpg';
-                        const fixedUrl = `${CORRECT_STORAGE_URL}${filename}`;
+
+                        // Fix Legacy URLs (if not starting with http)
+                        if (style.image_url && !style.image_url.startsWith("http")) {
+                            fixedUrl = `${CORRECT_STORAGE_URL}${filename}`;
+                        } else if (style.image_url && style.image_url.includes("supabase.co") && !style.image_url.includes(CORRECT_STORAGE_URL)) {
+                            // If it's a Supabase URL but maybe wrong format? 
+                            // Actually, trust the DB string if it's R2 (r2.dev) or correct Supabase
+                            // But wait, the previous code was forcing rewrite. we should TRUST the DB unless it looks like a raw filename.
+                            fixedUrl = style.image_url;
+                        } else {
+                            // It's likely R2 or valid Supabase
+                            fixedUrl = style.image_url;
+                        }
 
                         // Use filename as unique key
                         uniquePinsMap.set(filename, {

@@ -23,6 +23,10 @@ const nextConfig: NextConfig = {
         protocol: 'https',
         hostname: 'dgsvyelmvhybhphdxnvk.supabase.co',
       },
+      {
+        protocol: 'https',
+        hostname: 'pub-7910916370d44ba2875c0c6122ac584f.r2.dev',
+      },
     ],
   },
   experimental: {
