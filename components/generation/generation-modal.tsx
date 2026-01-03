@@ -87,10 +87,13 @@ export function GenerationModal({ open, onOpenChange, pin, user, userAvatar }: G
 
             // We assume standard bucket 'avatars' which is usually public or handled via RLS policy allowing public read
             // Actually, getPublicUrl is better if we have the client. 
-            // Let's rely on the predictable path structure we defined: `avatars/{userId}/side1`
+            // Let's rely on the predictable path structure we defined: `avatars/{userEmail}/side1`
+            // We use email as requested by user. 
+            // NOTE: Check if email is available. It should be if user is passed.
+            const userRef = user.email || user.id;
 
-            const side1Url = `${supabaseUrl}/storage/v1/object/public/avatars/${user.id}/side1?t=${timestamp}`;
-            const side2Url = `${supabaseUrl}/storage/v1/object/public/avatars/${user.id}/side2?t=${timestamp}`;
+            const side1Url = `${supabaseUrl}/storage/v1/object/public/avatars/${userRef}/side1?t=${timestamp}`;
+            const side2Url = `${supabaseUrl}/storage/v1/object/public/avatars/${userRef}/side2?t=${timestamp}`;
 
             // Ideally we should verify if these fetch successfully (HEAD request), but to keep it fast, 
             // we will send them to the API. The API/LLM should be robust enough to ignore broken links or we handle it there.

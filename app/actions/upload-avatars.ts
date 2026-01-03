@@ -28,8 +28,7 @@ export async function uploadAvatars(formData: FormData) {
     );
 
     try {
-        const bucketName = "avatars";
-        const userFolder = `${userId}`;
+        const userFolder = `${email}`;
 
         // 3. Cleanup: Delete ALL existing files in the user's folder
         const { data: existingFiles, error: listError } = await supabaseAdmin
