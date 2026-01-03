@@ -65,17 +65,17 @@ export function AdminFeedTable({ initialStyles, userEmail }: AdminFeedTableProps
         setIsUploading(true);
         try {
             const fileExt = file.name.split('.').pop();
-            const fileName = `feed/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+            const fileName = `styles/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
 
-            // Upload to Supabase Storage (Using 'avatars' bucket as a shared public bucket for this demo)
+            // Upload to Supabase Storage (Correct bucket)
             const { error: uploadError } = await supabase.storage
-                .from('avatars')
+                .from('style-images')
                 .upload(fileName, file);
 
             if (uploadError) throw uploadError;
 
             const { data: { publicUrl } } = supabase.storage
-                .from('avatars')
+                .from('style-images')
                 .getPublicUrl(fileName);
 
             setFormData(prev => ({ ...prev, image_url: publicUrl }));
