@@ -81,27 +81,40 @@ export function GenerationModal({ open, onOpenChange, pin, user, userAvatar }: G
             // We can't know for sure if they exist without checking, but passing a 404 URL might be ignored or handled by API
             // Better to try to check if they exist or just pass them and let backend/LLM handle?
             // Since we don't have a "list" API handy here, let's construct them.
-            // CAUTION: Public URL is predictable.
-            const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://your-project.supabase.co";
-            const timestamp = new Date().getTime(); // Cache busting
+            // NEW STRATEGY: Derive Side URLs from the Main Avatar URL
+            // The Main Avatar URL is versioned: `.../avatars/user@email.com/17350000/main`
+            // We just need to swap `main` for `side1` and `side2` to respect the version folder.
 
-            // We assume standard bucket 'avatars' which is usually public or handled via RLS policy allowing public read
-            // Actually, getPublicUrl is better if we have the client. 
-            // Let's rely on the predictable path structure we defined: `avatars/{userEmail}/side1`
-            // We use email as requested by user. 
-            // NOTE: Check if email is available. It should be if user is passed.
-            const userRef = user.email || user.id;
+            let side1Url = "";
+            let side2Url = "";
 
-            const side1Url = `${supabaseUrl}/storage/v1/object/public/avatars/${userRef}/side1?t=${timestamp}`;
-            const side2Url = `${supabaseUrl}/storage/v1/object/public/avatars/${userRef}/side2?t=${timestamp}`;
+            // UserAvatar comes from the DB (via useUserProfile) and contains the full public URL of the MAIN photo.
+            if (userAvatar && userAvatar.includes("avatars")) {
+                const cleanBaseUrl = userAvatar.split('?')[0];
 
-            // Ideally we should verify if these fetch successfully (HEAD request), but to keep it fast, 
-            // we will send them to the API. The API/LLM should be robust enough to ignore broken links or we handle it there.
-            // For now, let's assume if the user uploaded them, they exist. 
-            // If they didn't upload, this URL will return 400/404 from Supabase Storage.
-            // To be safe, we could do a quick check? 
-            // Let's just send them. The API will pass to OpenRouter. If OpenRouter gets 404 image, it might fail.
-            // Optimization: The user is in "Studio" flow, likely they have set up profile.
+                if (cleanBaseUrl.endsWith("main")) {
+                    side1Url = cleanBaseUrl.replace(/main$/, "side1");
+                    side2Url = cleanBaseUrl.replace(/main$/, "side2");
+                } else {
+                    // Fallback to legacy/simple structure if 'main' keyword is missing
+                    const userRef = user.email || user.id;
+                    const timestamp = new Date().getTime();
+                    side1Url = `${supabaseUrl}/storage/v1/object/public/avatars/${userRef}/side1?t=${timestamp}`;
+                    side2Url = `${supabaseUrl}/storage/v1/object/public/avatars/${userRef}/side2?t=${timestamp}`;
+                }
+            } else {
+                // Fallback if no avatar set (shouldn't happen in Studio flow usually)
+                const userRef = user.email || user.id;
+                const timestamp = new Date().getTime();
+                side1Url = `${supabaseUrl}/storage/v1/object/public/avatars/${userRef}/side1?t=${timestamp}`;
+                side2Url = `${supabaseUrl}/storage/v1/object/public/avatars/${userRef}/side2?t=${timestamp}`;
+            }
+
+            // Add cache buster to derived URLs just in case, though the folder name itself is the buster now.
+            // If the folder is unique, ?t= is redundant but harmless.
+            const ts = new Date().getTime();
+            if (!side1Url.includes('?')) side1Url += `?t=${ts}`;
+            if (!side2Url.includes('?')) side2Url += `?t=${ts}`;
 
             const additionalFaces = [side1Url, side2Url];
 
