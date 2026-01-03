@@ -2,9 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { ArchiveCard } from "./archive-card";
-import { Loader2 } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { ShareModal } from "@/components/share/share-modal";
+import { Button } from "@/components/ui/button";
+import { syncUserGenerations } from "@/app/actions/sync-archive";
+import { toast } from "sonner";
+import { getUserGenerations } from "@/app/actions/gallery";
 
 interface Generation {
     id: string;
@@ -17,8 +21,6 @@ interface ArchiveFeedProps {
     userEmail: string;
     userId: string;
 }
-
-import { getUserGenerations } from "@/app/actions/gallery";
 
 export function ArchiveFeed({ userEmail, userId }: ArchiveFeedProps) {
     const [generations, setGenerations] = useState<Generation[]>([]);
@@ -61,31 +63,12 @@ export function ArchiveFeed({ userEmail, userId }: ArchiveFeedProps) {
         setShareModalOpen(true);
     };
 
-    if (loading) {
-        return (
-            <div className="h-60 flex items-center justify-center w-full">
-                <Loader2 className="animate-spin text-muted-foreground w-10 h-10" />
-            </div>
-        );
-    }
-
-    // Add Sync Button
-    import { RefreshCw } from "lucide-react";
-    import { Button } from "@/components/ui/button";
-    import { syncUserGenerations } from "@/app/actions/sync-archive";
-    import { toast } from "sonner";
-
-    // ... inside component ...
-
     const handleSync = async () => {
         setLoading(true);
         try {
             const result = await syncUserGenerations();
             if (result.success) {
                 toast.success(`Synced ${result.count || 0} images from storage.`);
-                // Refetch
-                // We can't easily refetch without moving fetchGenerations out or triggering a reload/state change
-                // Let's just reload the page or trigger the useEffect by a counter
                 window.location.reload();
             } else {
                 toast.error(result.error || "Sync failed");
@@ -96,6 +79,14 @@ export function ArchiveFeed({ userEmail, userId }: ArchiveFeedProps) {
             setLoading(false);
         }
     };
+
+    if (loading) {
+        return (
+            <div className="h-60 flex items-center justify-center w-full">
+                <Loader2 className="animate-spin text-muted-foreground w-10 h-10" />
+            </div>
+        );
+    }
 
     if (generations.length === 0) {
         return (
@@ -110,7 +101,7 @@ export function ArchiveFeed({ userEmail, userId }: ArchiveFeedProps) {
                     Sync with Storage
                 </Button>
                 <p className="text-xs text-muted-foreground/50">
-                    (Use this if you have images in R2 but not here)
+                    (Use this if you have images in R2 but not here, e.g. from before the migration update)
                 </p>
             </div>
         );
