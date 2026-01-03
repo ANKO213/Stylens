@@ -16,56 +16,33 @@ const supabaseAdmin = createClient(
 
 export async function getUserGenerations(email: string | undefined, userId: string) {
     try {
-        const pathsToCheck: string[] = [];
-        if (email) pathsToCheck.push(email);
-        if (userId) pathsToCheck.push(userId);
+        if (!userId) {
+            return { success: false, error: "User ID is required" };
+        }
 
-        const uniquePaths = Array.from(new Set(pathsToCheck));
+        // Fetch from DB 'generations' table
+        // We prioritize DB records as they contain the R2 links and metadata
+        const { data: dbGenerations, error: dbError } = await supabaseAdmin
+            .from('generations')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false });
 
-        // Parallel fetch
-        const promises = uniquePaths.map(path =>
-            supabaseAdmin.storage
-                .from('generations')
-                .list(path, {
-                    limit: 100,
-                    offset: 0,
-                    sortBy: { column: 'created_at', order: 'desc' },
-                })
-                .then(({ data, error }) => ({ path, data, error }))
-        );
+        if (dbError) {
+            console.error("Error fetching generations from DB:", dbError);
+            return { success: false, error: dbError.message };
+        }
 
-        const results = await Promise.all(promises);
-        let allFiles: any[] = [];
+        // Map DB fields to expected Interface
+        const images = dbGenerations.map((gen: any) => ({
+            id: gen.id,
+            url: gen.image_url, // Column name from api/generate
+            title: gen.title || 'Portrait',
+            created_at: gen.created_at,
+            prompt: gen.prompt // Optional, useful if UI wants it later
+        }));
 
-        results.forEach(({ path, data, error }) => {
-            if (error) {
-                console.error(`Error fetching images from ${path}:`, error);
-                return;
-            }
-            if (data) {
-                const mapped = data.map(file => ({ ...file, folderPath: path }));
-                allFiles = [...allFiles, ...mapped];
-            }
-        });
-
-        // Generate Public URLs
-        const loadedImages = allFiles.map(file => {
-            const { data: { publicUrl } } = supabaseAdmin.storage
-                .from('generations')
-                .getPublicUrl(`${file.folderPath}/${file.name}`);
-
-            return {
-                id: file.id || `${file.folderPath}-${file.name}`,
-                url: publicUrl,
-                title: file.name,
-                created_at: file.created_at
-            };
-        });
-
-        // Sort by date desc
-        loadedImages.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-        return { success: true, images: loadedImages };
+        return { success: true, images };
 
     } catch (error: any) {
         console.error("Server Action Error:", error);
