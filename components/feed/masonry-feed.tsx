@@ -143,36 +143,31 @@ export function MasonryFeed() {
 
     return (
         <div className="max-w-[1800px] mx-auto px-4 py-6">
-            {/* Flex Grid instead of CSS Columns */}
-            <div className="flex gap-4">
-                {/* Column 1 */}
+            {/* Desktop View (MD+) - Manual Flex Grid to prevent jumping */}
+            <div className="hidden md:flex gap-4">
                 <div className="flex-1 space-y-4">
                     {columns[0].map(pin => (
                         <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} />
                     ))}
                 </div>
-                {/* Column 2 (Hidden on mobile) */}
-                <div className="hidden md:block flex-1 space-y-4">
+                <div className="flex-1 space-y-4">
                     {columns[1].map(pin => (
                         <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} />
                     ))}
                 </div>
-                {/* Column 3 (Hidden on mobile) */}
-                <div className="hidden md:block flex-1 space-y-4">
+                <div className="flex-1 space-y-4">
                     {columns[2].map(pin => (
                         <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} />
                     ))}
                 </div>
             </div>
 
-            {/* Mobile View: Just show all in one col? Or keep 1 col slice? 
-                Actually, simpler mobile logic: 
-                If mobile, just map all pins in one column. 
-                But for responsive consistent code, we can just hide cols 2/3 on mobile 
-                AND we must ensure that on mobile we put ALL pins in col 1?
-                
-                Let's refine the logic for responsiveness.
-            */}
+            {/* Mobile View (< MD) - Simple Stack */}
+            <div className="md:hidden space-y-4">
+                {pins.map(pin => (
+                    <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} />
+                ))}
+            </div>
 
 
             {/* JIT Auth Modal */}
