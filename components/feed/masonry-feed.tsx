@@ -55,8 +55,8 @@ export function MasonryFeed() {
                 const getFilename = (url: string) => url.split('/').pop() || '';
 
                 // 1. Process DB Results
-                if (dbResult.data && dbResult.data.length > 0) {
-                    dbResult.data.forEach((style: any) => {
+                if (data && data.length > 0) {
+                    data.forEach((style: any) => {
                         const filename = style.image_url ? style.image_url.split('/').pop() : 'unknown.jpg';
                         const fixedUrl = `${CORRECT_STORAGE_URL}${filename}`;
 
