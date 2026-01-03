@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { createClient } from "@/utils/supabase/client";
 import { updateStyle, createStyle } from "@/app/actions/admin-styles";
+import { uploadFeedImage } from "@/app/actions/upload-feed-image";
 import { fixAllStyleUrls } from "@/app/actions/fix-db";
 import { RefreshCw } from "lucide-react";
 
@@ -67,22 +68,18 @@ export function AdminFeedTable({ initialStyles, userEmail }: AdminFeedTableProps
 
         setIsUploading(true);
         try {
-            const fileExt = file.name.split('.').pop();
-            const fileName = `styles/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+            // Server Action Upload to R2
+            const uploadFormData = new FormData();
+            uploadFormData.append("file", file);
 
-            // Upload to Supabase Storage (Correct bucket)
-            const { error: uploadError } = await supabase.storage
-                .from('style-images')
-                .upload(fileName, file);
+            const result = await uploadFeedImage(uploadFormData);
 
-            if (uploadError) throw uploadError;
+            if (!result.success || !result.url) {
+                throw new Error(result.error || "Upload failed");
+            }
 
-            const { data: { publicUrl } } = supabase.storage
-                .from('style-images')
-                .getPublicUrl(fileName);
-
-            setFormData(prev => ({ ...prev, image_url: publicUrl }));
-            toast.success("Image uploaded successfully");
+            setFormData(prev => ({ ...prev, image_url: result.url }));
+            toast.success("Image uploaded to R2");
 
         } catch (error: any) {
             toast.error("Upload failed: " + error.message);
@@ -96,23 +93,9 @@ export function AdminFeedTable({ initialStyles, userEmail }: AdminFeedTableProps
 
         setIsLoading(true);
         try {
-            // 1. Check if image changed and delete old one
+            // 1. Check if image changed (Cleanup logic removed for now as R2 cleanup is manual/separate)
             if (formData.image_url && formData.image_url !== editingStyle.image_url) {
-                try {
-                    const oldUrl = editingStyle.image_url;
-                    // Extract path: everything after 'style-images/'
-                    // e.g. .../style-images/styles/foo.jpg -> styles/foo.jpg
-                    // e.g. .../style-images/feed/bar.jpg -> feed/bar.jpg
-                    const path = oldUrl.split('style-images/')[1];
-
-                    if (path) {
-                        console.log("Cleaning up old image:", path);
-                        await supabase.storage.from('style-images').remove([path]);
-                    }
-                } catch (cleanupError) {
-                    console.error("Failed to cleanup old image:", cleanupError);
-                    // Don't block the update if cleanup fails
-                }
+                // TODO: Optional R2 cleanup if needed in future
             }
 
             const result = await updateStyle(editingStyle.id, formData);
@@ -148,25 +131,21 @@ export function AdminFeedTable({ initialStyles, userEmail }: AdminFeedTableProps
 
         setIsUploading(true);
         try {
-            // 1. Upload Image
-            const fileExt = newItem.imageFile.name.split('.').pop();
-            const fileName = `styles/${Date.now()}-${Math.random()}.${fileExt}`;
+            // 1. Upload Image to R2
+            const uploadFormData = new FormData();
+            uploadFormData.append("file", newItem.imageFile);
 
-            const { error: uploadError } = await supabase.storage
-                .from('style-images')
-                .upload(fileName, newItem.imageFile);
+            const uploadResult = await uploadFeedImage(uploadFormData);
 
-            if (uploadError) throw uploadError;
+            if (!uploadResult.success || !uploadResult.url) {
+                throw new Error(uploadResult.error || "Upload failed");
+            }
 
-            const { data: { publicUrl } } = supabase.storage
-                .from('style-images')
-                .getPublicUrl(fileName);
-
-            // 2. Server Action Insert
+            // 2. Server Action Insert with R2 URL
             const result = await createStyle({
                 title: newItem.title,
                 prompt: newItem.prompt,
-                image_url: publicUrl
+                image_url: uploadResult.url
             });
 
             if (result.success && result.data) {
