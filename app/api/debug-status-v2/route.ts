@@ -28,7 +28,20 @@ export async function GET(req: any) {
     };
 
     try {
+        let targetId = null;
+
         if (emailParam) {
+            // Find User ID by Email
+            const { data: { users }, error: userError } = await supabaseAdmin.auth.admin.listUsers();
+            const foundUser = users?.find(u => u.email === emailParam);
+
+            if (foundUser) {
+                targetId = foundUser.id;
+                result.user = { id: targetId, email: emailParam };
+            } else {
+                result.error = "User not found in Auth system";
+            }
+
             // Check R2 for this email
             const folderPrefix = `generations/${emailParam}/`;
             const listCommand = new ListObjectsV2Command({
@@ -38,6 +51,18 @@ export async function GET(req: any) {
             const listResponse = await r2.send(listCommand);
             result.r2Count = listResponse.KeyCount || 0;
             result.r2Files = listResponse.Contents?.map(c => c.Key || "") || [];
+
+            // Check DB if we have ID
+            if (targetId) {
+                const { count, data: dbData, error: dbError } = await supabaseAdmin
+                    .from("generations")
+                    .select("image_url", { count: "exact" })
+                    .eq("user_id", targetId);
+
+                if (dbError) result.error = `DB Error: ${dbError.message}`;
+                result.dbCount = count || 0;
+                result.dbFiles = dbData?.map(d => d.image_url) || [];
+            }
 
         } else {
             // Global Scan
