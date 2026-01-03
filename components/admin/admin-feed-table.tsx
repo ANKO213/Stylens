@@ -3,6 +3,9 @@
 import { useState } from "react";
 import { createClient } from "@/utils/supabase/client";
 import { updateStyle, createStyle } from "@/app/actions/admin-styles";
+import { fixAllStyleUrls } from "@/app/actions/fix-db";
+import { RefreshCw } from "lucide-react";
+
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import Image from "next/image";
@@ -210,6 +213,9 @@ export function AdminFeedTable({ initialStyles, userEmail }: AdminFeedTableProps
                 >
                     Add Photo
                 </Button>
+                <div className="ml-2">
+                    <FixDbButton />
+                </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {styles.map((style) => (
@@ -407,6 +413,41 @@ export function AdminFeedTable({ initialStyles, userEmail }: AdminFeedTableProps
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </div>
+        </div >
+    );
+}
+
+function FixDbButton() {
+    const [loading, setLoading] = useState(false);
+    const handleFix = async () => {
+        if (!confirm("This will scan all styles and update image URLs to the correct storage path. Continue?")) return;
+        setLoading(true);
+        try {
+            const res = await fixAllStyleUrls();
+            if (res.success) {
+                toast.success(res.message);
+                console.log("Fix details:", res.details);
+            } else {
+                toast.error("Fix failed: " + res.error);
+            }
+        } catch (e) {
+            toast.error("Unexpected error");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleFix}
+            disabled={loading}
+            className="bg-[#18181b] border border-zinc-800 text-zinc-500 hover:text-white rounded-full h-[40px] px-4"
+            title="Fix DB URLs"
+        >
+            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            {loading ? "Fixing..." : "Fix DB"}
+        </Button>
     );
 }
