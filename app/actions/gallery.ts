@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { r2, R2_BUCKET_NAME, R2_PUBLIC_DOMAIN } from "@/lib/r2";
 import { ListObjectsV2Command } from "@aws-sdk/client-s3";
 
-// Initialize Admin Client
+// Initialize Admin Client (kept for auth/other needs if any, but fetching is now R2 direct)
 const supabaseAdmin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -18,94 +18,57 @@ const supabaseAdmin = createClient(
 
 export async function getUserGenerations(email: string | undefined, userId: string) {
     try {
-        if (!userId) {
-            return { success: false, error: "User ID is required" };
+        if (!email) {
+            // Fallback to userId if email not provided (though R2 structure relies on email currently)
+            // If we strictly used email folders, we need email.
+            return { success: false, error: "User Email is required for R2 lookup" };
         }
 
-        // Fetch from DB 'generations' table
-        const { data: dbGenerations, error: dbError } = await supabaseAdmin
-            .from('generations')
-            .select('*')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false });
+        console.log(`[Gallery] Fetching directly from R2 for: ${email}`);
 
-        if (dbError) {
-            console.error("Error fetching generations from DB:", dbError);
-            return { success: false, error: dbError.message };
+        const folderPrefix = `generations/${email}/`;
+
+        const listCommand = new ListObjectsV2Command({
+            Bucket: R2_BUCKET_NAME,
+            Prefix: folderPrefix
+        });
+
+        const listResponse = await r2.send(listCommand);
+
+        if (!listResponse.Contents || listResponse.Contents.length === 0) {
+            return { success: true, images: [] };
         }
 
-        let images = dbGenerations.map((gen: any) => ({
-            id: gen.id,
-            url: gen.image_url,
-            title: gen.title || 'Portrait',
-            created_at: gen.created_at,
-            prompt: gen.prompt
-        }));
+        // Map R2 Objects to Gallery Interface
+        const images = listResponse.Contents
+            .filter(file => file.Key && !file.Key.endsWith('/')) // Filter out folder markers if any
+            .map((file, index) => {
+                const publicUrl = `${R2_PUBLIC_DOMAIN}/${file.Key}`;
+                // Extract clean title from filename
+                // Format: generations/email/filename-date-id.png
+                // specific format: title-date-id.png
+                const basename = file.Key?.split('/').pop() || "Untitled";
 
-        // AUTO-SYNC: If DB is empty but R2 might have files (migration fallback)
-        if (images.length === 0 && email) {
-            console.log("DB empty, checking R2 for auto-sync...");
-            try {
-                const folderPrefix = `generations/${email}/`;
-                const listCommand = new ListObjectsV2Command({
-                    Bucket: R2_BUCKET_NAME,
-                    Prefix: folderPrefix
-                });
-                const listResponse = await r2.send(listCommand);
+                // Simple parsing: Remove extension and last segment (id) if possible, or just use basename
+                // Let's just use basename for now to be safe and visible
+                let title = basename.replace(/\.[^/.]+$/, ""); // remove extension
 
-                if (listResponse.Contents && listResponse.Contents.length > 0) {
-                    console.log(`Found ${listResponse.Contents.length} files in R2. Syncing...`);
-                    const newRecords = [];
+                return {
+                    id: file.ETag || `r2-${index}`, // Use ETag or index as ID
+                    url: publicUrl,
+                    title: title,
+                    created_at: file.LastModified ? file.LastModified.toISOString() : new Date().toISOString(),
+                    prompt: "" // Metadata not stored in R2 object list
+                };
+            });
 
-                    for (const file of listResponse.Contents) {
-                        if (!file.Key) continue;
-                        const publicUrl = `${R2_PUBLIC_DOMAIN}/${file.Key}`;
-                        const filename = file.Key.split('/').pop() || "recovered";
-                        const createdAt = file.LastModified ? file.LastModified.toISOString() : new Date().toISOString();
-
-                        // Prepare record
-                        newRecords.push({
-                            user_id: userId,
-                            image_url: publicUrl,
-                            title: "Restored",
-                            prompt: "Auto-synced from storage",
-                            model: "gemini-3-pro",
-                            created_at: createdAt
-                        });
-                    }
-
-                    // Batch Insert
-                    if (newRecords.length > 0) {
-                        const { error: insertError } = await supabaseAdmin
-                            .from("generations")
-                            .insert(newRecords);
-
-                        if (insertError) {
-                            console.error("Auto-sync insert error:", insertError);
-                        } else {
-                            // Update the return list immediately
-                            const syncedImages = newRecords.map((r, idx) => ({
-                                id: `synced-${idx}`,
-                                url: r.image_url,
-                                title: r.title,
-                                created_at: r.created_at,
-                                prompt: r.prompt
-                            }));
-                            // Sort again
-                            images = syncedImages.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-                        }
-                    }
-                }
-            } catch (syncError) {
-                console.error("Auto-sync failed:", syncError);
-                // Don't fail the request, just return empty list
-            }
-        }
+        // Sort by date desc
+        images.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
         return { success: true, images };
 
     } catch (error: any) {
-        console.error("Server Action Error:", error);
+        console.error("Server Action Error (R2):", error);
         return { success: false, error: error.message };
     }
 }
