@@ -70,7 +70,8 @@ export function MasonryFeed() {
                             title: style.title || "Untitled",
                             imageUrl: fixedUrl,
                             author: "Pintero",
-                            prompt: style.prompt || style.title
+                            prompt: style.prompt || style.title,
+                            heightRatio: 1.5
                         });
                     });
                 }
@@ -89,7 +90,8 @@ export function MasonryFeed() {
                                 title: file.name,
                                 imageUrl: fixedUrl,
                                 author: "Storage",
-                                prompt: "Recovered from storage"
+                                prompt: "Recovered from storage",
+                                heightRatio: 1.5
                             });
                         }
                     });
