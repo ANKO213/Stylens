@@ -77,17 +77,25 @@ export function GenerationModal({ open, onOpenChange, pin, user, userAvatar }: G
         if (!pin || !user) return;
 
         try {
-            // Construct potential side photo URLs
-            const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://your-project.supabase.co";
+            // Construct potential side photo URLs based on the main R2 Avatar URL
+            // Logic: userAvatar is like https://...r2.dev/avatars/email/main
+            // We want .../avatars/email/side1 and .../side2
 
-            // STRICT LOGIC: Files are always at `avatars/{email}/...`
-            const userRef = user.email || user.id; // Should be email per new logic
-            const timestamp = new Date().getTime(); // Cache buster for the fetch
+            let side1Url = "";
+            let side2Url = "";
+            const timestamp = new Date().getTime(); // Cache buster
 
-            const side1Url = `${supabaseUrl}/storage/v1/object/public/avatars/${userRef}/side1?t=${timestamp}`;
-            const side2Url = `${supabaseUrl}/storage/v1/object/public/avatars/${userRef}/side2?t=${timestamp}`;
+            if (userAvatar && userAvatar.includes("avatars/")) {
+                const baseUrl = userAvatar.substring(0, userAvatar.lastIndexOf('/')); // strip 'main' or filename
+                side1Url = `${baseUrl}/side1?t=${timestamp}`;
+                side2Url = `${baseUrl}/side2?t=${timestamp}`;
+            } else {
+                // Fallback for unexpected URL format (though clean slate should prevent this)
+                // Should not happen if upload logic is correct.
+                console.warn("Could not derive side URLs from avatar:", userAvatar);
+            }
 
-            const additionalFaces = [side1Url, side2Url];
+            const additionalFaces = [side1Url, side2Url].filter(u => !!u);
 
             const response = await fetch('/api/generate', {
                 method: 'POST',
