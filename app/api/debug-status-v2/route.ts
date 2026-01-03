@@ -9,7 +9,7 @@ const supabaseAdmin = createAdminClient(
     process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-export const dynamic = 'force-dynamic'; // Force no cache
+export const dynamic = 'force-dynamic';
 
 export async function GET(req: any) {
     const { searchParams } = new URL(req.url);
@@ -34,14 +34,18 @@ export async function GET(req: any) {
 
         if (emailParam) {
             // Find User ID by Email
-            const { data: { users }, error: userError } = await supabaseAdmin.auth.admin.listUsers();
-            const foundUser = users?.find(u => u.email === emailParam);
+            const { data: { users }, error: userError } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
+
+            // Populate Debug List
+            result.allUserEmails = users?.map(u => u.email || "no-email") || [];
+
+            const foundUser = users?.find(u => u.email?.toLowerCase() === emailParam.toLowerCase());
 
             if (foundUser) {
                 targetId = foundUser.id;
-                result.user = { id: targetId, email: emailParam };
+                result.user = { id: targetId, email: foundUser.email };
             } else {
-                result.error = "User not found in Auth system";
+                result.error = "User not found in Auth system (scanned 1000)";
             }
 
             // Check R2 for this email
