@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createClient as createServerClient } from "@/utils/supabase/server";
 
 export async function uploadAvatars(formData: FormData) {
-    // 1. Authenticate User (Standard Client)
+    // 1. Authenticate User
     const supabaseUserClient = await createServerClient();
     const { data: { user }, error: authError } = await supabaseUserClient.auth.getUser();
 
@@ -15,7 +15,7 @@ export async function uploadAvatars(formData: FormData) {
     const email = user.email;
     const userId = user.id;
 
-    // 2. Initialize Admin Client (Bypass RLS for deletion/overwrite)
+    // 2. Initialize Admin Client
     const supabaseAdmin = createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -29,68 +29,62 @@ export async function uploadAvatars(formData: FormData) {
 
     try {
         const bucketName = "avatars";
-        const userFolder = `${email}`;
 
-        // 3. Cleanup: Delete ALL existing files in both possible folders (Email and ID)
-        // This ensures we clean up the "numeric" ID folder from previous version AND current email folder.
-        const foldersToClean = [email, userId];
+        // --- STRICT FOLDER ENFORCEMENT ---
+        // We use Email as the folder name.
+        const targetFolder = email;
+        const legacyFolder = userId;
+
+        // 3. CLEANUP PHASE
+        // We act on both folders to ensure no residue from previous versions.
+        const foldersToClean = [targetFolder, legacyFolder];
 
         for (const folder of foldersToClean) {
-            const { data: existingFiles, error: listError } = await supabaseAdmin
+            // List files
+            const { data: files, error: listError } = await supabaseAdmin
                 .storage
                 .from(bucketName)
                 .list(folder);
 
             if (listError) {
-                console.error(`List Error (${folder}):`, listError);
+                console.error(`Cleanup List Error (${folder}):`, listError);
                 continue;
             }
 
-            if (existingFiles && existingFiles.length > 0) {
-                // Filter out empty folder placeholders if any (though 'remove' handles generic paths)
-                const filesToRemove = existingFiles
+            if (files && files.length > 0) {
+                const pathsToRemove = files
                     .filter(f => f.name !== '.emptyFolderPlaceholder')
                     .map(f => `${folder}/${f.name}`);
 
-                if (filesToRemove.length > 0) {
+                if (pathsToRemove.length > 0) {
                     const { error: removeError } = await supabaseAdmin
                         .storage
                         .from(bucketName)
-                        .remove(filesToRemove);
+                        .remove(pathsToRemove);
 
                     if (removeError) {
-                        console.error(`Remove Error (${folder}):`, removeError);
-                        // We escalate this to error if it's the target folder, but for cleanup of old ID folder, we could be lenient.
-                        // However, user requested strict cleanup.
-                        if (folder === email) return { error: "Failed to cleanup old avatars" };
+                        console.error(`Cleanup Remove Error (${folder}):`, removeError);
                     }
                 }
             }
         }
 
-        // 4. Upload New Files
+        // 4. UPLOAD PHASE (Sequential for safety)
         const mainFile = formData.get("main") as File;
         const side1File = formData.get("side1") as File;
         const side2File = formData.get("side2") as File;
 
-        if (!mainFile) {
-            return { error: "Main profile photo is required" };
-        }
+        if (!mainFile) return { error: "Main photo is required" };
 
-        const uploadPromises = [];
-        let mainAvatarUrl = "";
+        let finalAvatarUrl = "";
 
-        // Function to handle single file upload
-        const uploadFile = async (file: File, name: string) => {
+        // Helper
+        const processUpload = async (file: File, name: string) => {
             const buffer = Buffer.from(await file.arrayBuffer());
-            // const fileExt = file.name.split('.').pop();
-            // const timestamp = Date.now();
-            // const filename = `${prefix}-${timestamp}.${fileExt}`; // e.g. main-170000000.jpg
+            const fileName = name; // Deterministic: "main", "side1", "side2"
+            const filePath = `${targetFolder}/${fileName}`;
 
-            // USE DETERMINISTIC NAMES (No extension needed if Content-Type is set, makes URL predictable)
-            const filename = name;
-            const filePath = `${userFolder}/${filename}`;
-
+            // Upsert
             const { error: uploadError } = await supabaseAdmin
                 .storage
                 .from(bucketName)
@@ -99,50 +93,43 @@ export async function uploadAvatars(formData: FormData) {
                     upsert: true
                 });
 
-            if (uploadError) throw new Error(`Failed to upload ${filename}: ${uploadError.message}`);
+            if (uploadError) throw new Error(`Upload failed for ${fileName}: ${uploadError.message}`);
 
-            // Get Public URL
+            // Get URL
             const { data: { publicUrl } } = supabaseAdmin
                 .storage
                 .from(bucketName)
                 .getPublicUrl(filePath);
 
-            // Add cache bust for immediate UI update
-            return `${publicUrl}?t=${Date.now()}`;
+            return publicUrl;
         };
 
-        // Main
-        uploadPromises.push(
-            uploadFile(mainFile, "main").then(url => { mainAvatarUrl = url; })
-        );
+        // A. Upload Main
+        const mainUrl = await processUpload(mainFile, "main");
+        finalAvatarUrl = `${mainUrl}?t=${Date.now()}`; // Add cache buster for DB
 
-        // Side 1
+        // B. Upload Side 1 (if exists)
         if (side1File) {
-            uploadPromises.push(uploadFile(side1File, "side1"));
+            await processUpload(side1File, "side1");
         }
 
-        // Side 2
+        // C. Upload Side 2 (if exists)
         if (side2File) {
-            uploadPromises.push(uploadFile(side2File, "side2"));
+            await processUpload(side2File, "side2");
         }
 
-        await Promise.all(uploadPromises);
-
-        // 5. Update Profile with Main Avatar URL
-        const { error: profileError } = await supabaseAdmin
+        // 5. UPDATE DB
+        const { error: dbError } = await supabaseAdmin
             .from("profiles")
-            .update({ avatar_url: mainAvatarUrl })
+            .update({ avatar_url: finalAvatarUrl })
             .eq("id", userId);
 
-        if (profileError) {
-            console.error("Profile Update Error:", profileError);
-            return { error: "Failed to update profile" };
-        }
+        if (dbError) throw dbError;
 
-        return { success: true, avatarUrl: mainAvatarUrl };
+        return { success: true, avatarUrl: finalAvatarUrl };
 
     } catch (error: any) {
-        console.error("Upload Avatars Error:", error);
-        return { error: error.message || "An unexpected error occurred" };
+        console.error("Upload Avatars Fatal Error:", error);
+        return { error: error.message || "Server upload failed" };
     }
 }
