@@ -140,6 +140,30 @@ export function GenerationModal({ open, onOpenChange, pin, user, userAvatar }: G
         setStep('scanning');
     };
 
+    const handleDownload = async () => {
+        if (!resultUrl) return;
+        try {
+            // Toast loading state if needed, or just proceed
+            const response = await fetch(resultUrl);
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            // Generate a nice filename
+            const date = new Date().toISOString().split('T')[0];
+            link.download = `stylens-${pin?.title || 'portrait'}-${date}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+            toast.success("Image saved to downloads");
+        } catch (e) {
+            console.error("Download error:", e);
+            toast.error("Download failed, opening in new tab...");
+            window.open(resultUrl, '_blank');
+        }
+    };
+
     if (!open) return null;
 
     const displayResultImage = resultUrl || pin?.imageUrl || EXAMPLE_IMG;
@@ -296,7 +320,7 @@ export function GenerationModal({ open, onOpenChange, pin, user, userAvatar }: G
                             <div
                                 onClick={() => {
                                     if (step === 'upload') handleStartClick();
-                                    if (step === 'result') window.open(resultUrl!, '_blank'); // Simple download on click/save
+                                    if (step === 'result') handleDownload();
                                 }}
                                 className={cn(
                                     "relative h-[40px] bg-[rgba(26,26,26,0.8)] backdrop-blur-md rounded-full flex items-center justify-center gap-3 px-5 transition-all duration-300 border border-[rgba(255,255,255,0.1)] shadow-[0px_20px_25px_-5px_rgba(0,0,0,0.1),0px_8px_10px_-6px_rgba(0,0,0,0.1)] select-none",
