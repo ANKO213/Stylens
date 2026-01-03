@@ -29,9 +29,9 @@ export async function uploadAvatars(formData: FormData) {
 
     try {
         const bucketName = "avatars";
-        const userFolder = `${email}`;
+        const userFolder = `${userId}`;
 
-        // 3. Cleanup: Delete ALL existing files in the user's email folder
+        // 3. Cleanup: Delete ALL existing files in the user's folder
         const { data: existingFiles, error: listError } = await supabaseAdmin
             .storage
             .from(bucketName)
@@ -69,11 +69,14 @@ export async function uploadAvatars(formData: FormData) {
         let mainAvatarUrl = "";
 
         // Function to handle single file upload
-        const uploadFile = async (file: File, prefix: string) => {
+        const uploadFile = async (file: File, name: string) => {
             const buffer = Buffer.from(await file.arrayBuffer());
-            const fileExt = file.name.split('.').pop();
-            const timestamp = Date.now();
-            const filename = `${prefix}-${timestamp}.${fileExt}`; // e.g. main-170000000.jpg
+            // const fileExt = file.name.split('.').pop();
+            // const timestamp = Date.now();
+            // const filename = `${prefix}-${timestamp}.${fileExt}`; // e.g. main-170000000.jpg
+
+            // USE DETERMINISTIC NAMES (No extension needed if Content-Type is set, makes URL predictable)
+            const filename = name;
             const filePath = `${userFolder}/${filename}`;
 
             const { error: uploadError } = await supabaseAdmin
@@ -92,7 +95,8 @@ export async function uploadAvatars(formData: FormData) {
                 .from(bucketName)
                 .getPublicUrl(filePath);
 
-            return publicUrl;
+            // Add cache bust for immediate UI update
+            return `${publicUrl}?t=${Date.now()}`;
         };
 
         // Main
