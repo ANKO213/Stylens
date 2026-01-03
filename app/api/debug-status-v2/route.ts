@@ -18,6 +18,7 @@ export async function GET(req: any) {
     const result = {
         mode: emailParam ? "Specific User" : "Global Scan",
         targetEmail: emailParam || "None",
+        user: null as any,
         userFoundInDB: false,
         dbCount: 0,
         r2Count: 0,
