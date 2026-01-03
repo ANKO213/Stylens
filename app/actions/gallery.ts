@@ -1,6 +1,8 @@
 "use server";
 
 import { createClient } from "@supabase/supabase-js";
+import { r2, R2_BUCKET_NAME, R2_PUBLIC_DOMAIN } from "@/lib/r2";
+import { ListObjectsV2Command } from "@aws-sdk/client-s3";
 
 // Initialize Admin Client
 const supabaseAdmin = createClient(
@@ -19,12 +21,6 @@ export async function getUserGenerations(email: string | undefined, userId: stri
         if (!userId) {
             return { success: false, error: "User ID is required" };
         }
-
-        // Imports at top (need to ensure they are added)
-        import { r2, R2_BUCKET_NAME, R2_PUBLIC_DOMAIN } from "@/lib/r2";
-        import { ListObjectsV2Command } from "@aws-sdk/client-s3";
-
-        // ... existing code ...
 
         // Fetch from DB 'generations' table
         const { data: dbGenerations, error: dbError } = await supabaseAdmin
@@ -88,8 +84,6 @@ export async function getUserGenerations(email: string | undefined, userId: stri
                             console.error("Auto-sync insert error:", insertError);
                         } else {
                             // Update the return list immediately
-                            // We need ID for the UI key, but batch insert doesn't return IDs unless selected.
-                            // We can just map newRecords to the UI format (ID will be missing, generate temp one)
                             const syncedImages = newRecords.map((r, idx) => ({
                                 id: `synced-${idx}`,
                                 url: r.image_url,
@@ -97,7 +91,7 @@ export async function getUserGenerations(email: string | undefined, userId: stri
                                 created_at: r.created_at,
                                 prompt: r.prompt
                             }));
-                            // Sort again?
+                            // Sort again
                             images = syncedImages.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
                         }
                     }
