@@ -29,57 +29,46 @@ export async function uploadAvatars(formData: FormData) {
 
     try {
         const bucketName = "avatars";
+        const targetFolder = email; // User requirement: Folder name is email
 
-        // --- STRICT FOLDER ENFORCEMENT ---
-        // We use Email as the folder name.
-        const targetFolder = email;
-        const legacyFolder = userId;
+        console.log(`[AvatarUpload] Start. User: ${email}`);
 
-        console.log(`[AvatarUpload] Start. Email: ${email}, ID: ${userId}`);
-        console.log(`[AvatarUpload] Target Folder: ${targetFolder}`);
-        console.log(`[AvatarUpload] Legacy Folder: ${legacyFolder}`);
+        // 3. CLEANUP PHASE: "Clean Slate"
+        // List everything in the user's folder
+        const { data: existingFiles, error: listError } = await supabaseAdmin
+            .storage
+            .from(bucketName)
+            .list(targetFolder);
 
-        // 3. CLEANUP PHASE
-        // ...
-        const foldersToClean = [targetFolder, legacyFolder];
+        if (listError) {
+            console.error(`[AvatarUpload] List Error:`, listError);
+            // We continue, assuming maybe folder doesn't exist yet
+        }
 
-        for (const folder of foldersToClean) {
-            // List files
-            const { data: files, error: listError } = await supabaseAdmin
-                .storage
-                .from(bucketName)
-                .list(folder);
+        if (existingFiles && existingFiles.length > 0) {
+            // Filter out placeholder if any
+            const filesToDelete = existingFiles
+                .filter(f => f.name !== '.emptyFolderPlaceholder')
+                .map(f => `${targetFolder}/${f.name}`);
 
-            if (listError) {
-                console.error(`[AvatarUpload] Cleanup List Error (${folder}):`, listError);
-                continue;
-            }
-
-            console.log(`[AvatarUpload] Files in ${folder}:`, files?.length || 0);
-
-            if (files && files.length > 0) {
-                const pathsToRemove = files
-                    .filter(f => f.name !== '.emptyFolderPlaceholder')
-                    .map(f => `${folder}/${f.name}`);
-
-                console.log(`[AvatarUpload] Deleting from ${folder}:`, pathsToRemove);
-
-                if (pathsToRemove.length > 0) {
-                    const { error: removeError } = await supabaseAdmin
-                        .storage
-                        .from(bucketName)
-                        .remove(pathsToRemove);
-
-                    if (removeError) {
-                        console.error(`[AvatarUpload] Cleanup Remove Error (${folder}):`, removeError);
-                    } else {
-                        console.log(`[AvatarUpload] Cleanup success for ${folder}`);
-                    }
+            if (filesToDelete.length > 0) {
+                console.log(`[AvatarUpload] Cleaning up ${filesToDelete.length} old files...`);
+                const { error: deleteError } = await supabaseAdmin
+                    .storage
+                    .from(bucketName)
+                    .remove(filesToDelete);
+                
+                if (deleteError) {
+                    console.error("Cleanup failed:", deleteError);
+                    // Critical? Maybe not, upsert might handle it, but user wants strict cleanup.
+                    // We'll log and proceed with upsert=true.
+                } else {
+                     console.log("[AvatarUpload] Cleanup successful.");
                 }
             }
         }
 
-        // 4. UPLOAD PHASE (Sequential for safety)
+        // 4. UPLOAD PHASE
         const mainFile = formData.get("main") as File;
         const side1File = formData.get("side1") as File;
         const side2File = formData.get("side2") as File;
@@ -88,15 +77,13 @@ export async function uploadAvatars(formData: FormData) {
 
         let finalAvatarUrl = "";
 
-        // Helper
         const processUpload = async (file: File, name: string) => {
             const buffer = Buffer.from(await file.arrayBuffer());
-            const fileName = name; // Deterministic: "main", "side1", "side2"
+            const fileName = name; // Strict naming: "main", "side1", "side2"
             const filePath = `${targetFolder}/${fileName}`;
+            
+            console.log(`[AvatarUpload] Uploading ${name} to ${filePath}`);
 
-            console.log(`[AvatarUpload] Uploading ${name} to ${filePath}, size: ${buffer.length}`);
-
-            // Upsert
             const { error: uploadError } = await supabaseAdmin
                 .storage
                 .from(bucketName)
@@ -107,29 +94,22 @@ export async function uploadAvatars(formData: FormData) {
 
             if (uploadError) throw new Error(`Upload failed for ${fileName}: ${uploadError.message}`);
 
-            // Get URL
             const { data: { publicUrl } } = supabaseAdmin
                 .storage
                 .from(bucketName)
                 .getPublicUrl(filePath);
-
-            console.log(`[AvatarUpload] Success: ${publicUrl}`);
+            
             return publicUrl;
         };
 
-        // A. Upload Main
+        // Upload Main
         const mainUrl = await processUpload(mainFile, "main");
-        finalAvatarUrl = `${mainUrl}?t=${Date.now()}`; // Add cache buster for DB
+        // Add cache buster for DB URL only (so frontend sees change immediately)
+        finalAvatarUrl = `${mainUrl}?t=${Date.now()}`; 
 
-        // B. Upload Side 1 (if exists)
-        if (side1File) {
-            await processUpload(side1File, "side1");
-        }
-
-        // C. Upload Side 2 (if exists)
-        if (side2File) {
-            await processUpload(side2File, "side2");
-        }
+        // Upload Sides
+        if (side1File) await processUpload(side1File, "side1");
+        if (side2File) await processUpload(side2File, "side2");
 
         // 5. UPDATE DB
         const { error: dbError } = await supabaseAdmin
@@ -139,6 +119,7 @@ export async function uploadAvatars(formData: FormData) {
 
         if (dbError) throw dbError;
 
+        console.log("[AvatarUpload] Complete. DB updated.");
         return { success: true, avatarUrl: finalAvatarUrl };
 
     } catch (error: any) {

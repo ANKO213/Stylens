@@ -80,43 +80,15 @@ export function GenerationModal({ open, onOpenChange, pin, user, userAvatar }: G
             // Construct potential side photo URLs
             const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://your-project.supabase.co";
             
-            // We can't know for sure if they exist without checking, but passing a 404 URL might be ignored or handled by API
-            // Better to try to check if they exist or just pass them and let backend/LLM handle?
-            // Since we don't have a "list" API handy here, let's construct them.
-            // NEW STRATEGY: Derive Side URLs from the Main Avatar URL
-            // The Main Avatar URL is versioned: `.../avatars/user@email.com/17350000/main`
-            // We just need to swap `main` for `side1` and `side2` to respect the version folder.
-
-            let side1Url = "";
-            let side2Url = "";
-
-            // UserAvatar comes from the DB (via useUserProfile) and contains the full public URL of the MAIN photo.
-            if (userAvatar && userAvatar.includes("avatars")) {
-                const cleanBaseUrl = userAvatar.split('?')[0];
-
-                if (cleanBaseUrl.endsWith("main")) {
-                    side1Url = cleanBaseUrl.replace(/main$/, "side1");
-                    side2Url = cleanBaseUrl.replace(/main$/, "side2");
-                } else {
-                    // Fallback to legacy/simple structure if 'main' keyword is missing
-                    const userRef = user.email || user.id;
-                    const timestamp = new Date().getTime();
-                    side1Url = `${supabaseUrl}/storage/v1/object/public/avatars/${userRef}/side1?t=${timestamp}`;
-                    side2Url = `${supabaseUrl}/storage/v1/object/public/avatars/${userRef}/side2?t=${timestamp}`;
-                }
-            } else {
-                // Fallback if no avatar set (shouldn't happen in Studio flow usually)
-                const userRef = user.email || user.id;
-                const timestamp = new Date().getTime();
-                side1Url = `${supabaseUrl}/storage/v1/object/public/avatars/${userRef}/side1?t=${timestamp}`;
-                side2Url = `${supabaseUrl}/storage/v1/object/public/avatars/${userRef}/side2?t=${timestamp}`;
-            }
-
-            // Add cache buster to derived URLs just in case, though the folder name itself is the buster now.
-            // If the folder is unique, ?t= is redundant but harmless.
-            const ts = new Date().getTime();
-            if (!side1Url.includes('?')) side1Url += `?t=${ts}`;
-            if (!side2Url.includes('?')) side2Url += `?t=${ts}`;
+            // STRICT LOGIC: Files are always at `avatars/{email}/...`
+            // We do NOT use the path from `userAvatar` because `userAvatar` might have a cache buster or old path.
+            // We trust the structure.
+            
+            const userRef = user.email || user.id; // Should be email per new logic
+            const timestamp = new Date().getTime(); // Cache buster for the fetch
+            
+            const side1Url = `${supabaseUrl}/storage/v1/object/public/avatars/${userRef}/side1?t=${timestamp}`;
+            const side2Url = `${supabaseUrl}/storage/v1/object/public/avatars/${userRef}/side2?t=${timestamp}`;
 
             const additionalFaces = [side1Url, side2Url];
 
