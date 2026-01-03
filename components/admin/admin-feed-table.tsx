@@ -4,6 +4,7 @@ import { useState } from "react";
 import { createClient } from "@/utils/supabase/client";
 import { updateStyle, createStyle } from "@/app/actions/admin-styles";
 import { uploadFeedImage } from "@/app/actions/upload-feed-image";
+import { deleteStyle } from "@/app/actions/delete-style";
 import { fixAllStyleUrls } from "@/app/actions/fix-db";
 import { RefreshCw } from "lucide-react";
 
@@ -169,10 +170,14 @@ export function AdminFeedTable({ initialStyles, userEmail }: AdminFeedTableProps
         if (!confirm("Are you sure you want to delete this style?")) return;
 
         try {
-            const { error } = await supabase.from("styles").delete().eq("id", id);
-            if (error) throw error;
+            const result = await deleteStyle(id);
+
+            if (!result.success) {
+                throw new Error(result.error);
+            }
+
             setStyles(prev => prev.filter(s => s.id !== id));
-            toast.success("Style deleted");
+            toast.success("Style and image deleted");
         } catch (error: any) {
             toast.error("Delete failed: " + error.message);
         }
