@@ -53,54 +53,59 @@ export function MasonryFeed() {
 
                 const [dbResult, storageResult] = await Promise.all([dbPromise, storagePromise]);
 
-                let allPins: Pin[] = [];
+                const uniquePinsMap = new Map<string, Pin>();
 
-                // Process DB Results
+                // Helper to extract filename for deduplication
+                const getFilename = (url: string) => url.split('/').pop() || '';
+
+                // 1. Process DB Results
                 if (dbResult.data && dbResult.data.length > 0) {
-                    allPins = dbResult.data.map((style: any) => {
+                    dbResult.data.forEach((style: any) => {
                         const filename = style.image_url ? style.image_url.split('/').pop() : 'unknown.jpg';
-                        // Fix URL to always point to the correct storage folder
                         const fixedUrl = `${CORRECT_STORAGE_URL}${filename}`;
 
-                        return {
+                        // Use filename as unique key
+                        uniquePinsMap.set(filename, {
                             id: style.id,
                             title: style.title || "Untitled",
                             imageUrl: fixedUrl,
                             author: "Pintero",
                             prompt: style.prompt || style.title
-                        };
+                        });
                     });
                 }
 
-                // Process Storage Results
+                // 2. Process Storage Results (Only add if filename not already in Map)
                 if (storageResult.data && storageResult.data.length > 0) {
-                    const dbImageUrls = new Set(allPins.map(p => p.imageUrl));
+                    storageResult.data.forEach((file: any) => {
+                        if (file.name === '.emptyFolderPlaceholder') return;
 
-                    const storagePins: Pin[] = storageResult.data
-                        .filter((file: any) => file.name !== '.emptyFolderPlaceholder')
-                        .map((file: any) => {
-                            // Construct strict URL for storage files too
-                            const fixedUrl = `${CORRECT_STORAGE_URL}${file.name}`;
+                        const filename = file.name;
 
-                            return {
+                        if (!uniquePinsMap.has(filename)) {
+                            const fixedUrl = `${CORRECT_STORAGE_URL}${filename}`;
+                            uniquePinsMap.set(filename, {
                                 id: file.id || file.name,
                                 title: file.name,
                                 imageUrl: fixedUrl,
                                 author: "Storage",
                                 prompt: "Recovered from storage"
-                            };
-                        })
-                        // Filter out if this URL is already in the DB list
-                        .filter((pin: Pin) => !dbImageUrls.has(pin.imageUrl));
-
-                    // Merge orphans
-                    allPins = [...allPins, ...storagePins];
+                            });
+                        }
+                    });
                 }
 
-                if (allPins.length > 0) {
-                    setPins(allPins);
+                let finalPins = Array.from(uniquePinsMap.values());
+
+                // 3. Shuffle (Fisher-Yates)
+                for (let i = finalPins.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [finalPins[i], finalPins[j]] = [finalPins[j], finalPins[i]];
+                }
+
+                if (finalPins.length > 0) {
+                    setPins(finalPins);
                 } else {
-                    // Only use mock if absolutely nothing found in DB OR Storage
                     setPins(generateMockPins(10));
                 }
             } catch (e) {
