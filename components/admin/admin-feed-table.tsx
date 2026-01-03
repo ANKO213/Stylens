@@ -197,8 +197,9 @@ export function AdminFeedTable({ initialStyles, userEmail }: AdminFeedTableProps
                 >
                     Add Photo
                 </Button>
-                <div className="ml-2">
+                <div className="ml-2 flex gap-2">
                     <FixDbButton />
+                    <StorageCleanupButton />
                 </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -435,3 +436,122 @@ function FixDbButton() {
         </Button>
     );
 }
+
+// Storage Maintenance Component
+import { analyzeStorageCleanup, executeStorageCleanup } from "@/app/actions/storage-maintenance";
+import { Trash } from "lucide-react";
+
+function StorageCleanupButton() {
+    const [analyzing, setAnalyzing] = useState(false);
+    const [cleaning, setCleaning] = useState(false);
+    const [report, setReport] = useState<any[] | null>(null);
+    const [showReport, setShowReport] = useState(false);
+
+    const handleAnalyze = async () => {
+        setAnalyzing(true);
+        try {
+            const result = await analyzeStorageCleanup();
+            if (result.success) {
+                setReport(result.report);
+                setShowReport(true);
+                const count = result.report.reduce((acc: number, r: any) => acc + r.orphanedFiles, 0);
+                if (count === 0) toast.success("Storage is clean! No orphans found.");
+                else toast.info(`Found ${count} orphaned files.`);
+            } else {
+                toast.error("Analysis failed: " + result.error);
+            }
+        } catch (e: any) {
+            toast.error("Error: " + e.message);
+        } finally {
+            setAnalyzing(false);
+        }
+    };
+
+    const handleCleanup = async () => {
+        if (!report) return;
+        if (!confirm("Are you sure you want to PERMANENTLY delete these files? This cannot be undone.")) return;
+
+        setCleaning(true);
+        try {
+            let totalDeleted = 0;
+            for (const bucketReport of report) {
+                if (bucketReport.orphans.length > 0) {
+                    const bucketName = bucketReport.bucket;
+                    // Batch delete not supported by our simple helper, loop or update helper?
+                    // Use the helper we made
+                    const res = await executeStorageCleanup(bucketReport.orphans.map((o: any) => ({ bucket: bucketName, path: o.path })));
+                    if (res.success) totalDeleted += res.count;
+                }
+            }
+            toast.success(`Cleanup complete. Deleted ${totalDeleted} files.`);
+            setShowReport(false);
+            setReport(null);
+        } catch (e: any) {
+            toast.error("Cleanup failed: " + e.message);
+        } finally {
+            setCleaning(false);
+        }
+    };
+
+    return (
+        <>
+            <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleAnalyze}
+                disabled={analyzing}
+                className="bg-[#18181b] border border-zinc-800 text-zinc-500 hover:text-red-400 rounded-full h-[40px] px-4 ml-2"
+                title="Scan & Clean Storage"
+            >
+                <Trash className={`w-4 h-4 mr-2 ${analyzing ? 'animate-spin' : ''}`} />
+                {analyzing ? "Scanning..." : "Clean Storage"}
+            </Button>
+
+            <Dialog open={showReport} onOpenChange={setShowReport}>
+                <DialogContent className="bg-[#121212] border-[rgba(255,255,255,0.1)] text-white sm:rounded-[24px] p-6 max-h-[80vh] overflow-y-auto w-full max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl font-bold uppercase tracking-wider">Storage Cleanup Report</DialogTitle>
+                    </DialogHeader>
+
+                    <div className="space-y-4 py-4">
+                        {report && report.map((bucket: any) => (
+                            <div key={bucket.bucket} className="bg-zinc-900/50 p-4 rounded-xl border border-white/5">
+                                <div className="flex justify-between items-center mb-2">
+                                    <h3 className="font-bold text-zinc-300 capitalize">{bucket.bucket}</h3>
+                                    <span className="text-xs bg-zinc-800 px-2 py-1 rounded text-zinc-500">
+                                        {bucket.orphanedFiles} orphans / {bucket.totalFiles} total
+                                    </span>
+                                </div>
+                                {bucket.orphans.length > 0 ? (
+                                    <div className="max-h-[150px] overflow-y-auto text-[10px] font-mono text-red-400 bg-black/40 p-2 rounded">
+                                        {bucket.orphans.map((o: any) => (
+                                            <div key={o.path} className="truncate">{o.path}</div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-xs text-green-500 flex items-center gap-1">
+                                        <Check className="w-3 h-3" /> Clean
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setShowReport(false)} className="rounded-full">Cancel</Button>
+                        <Button
+                            onClick={handleCleanup}
+                            disabled={cleaning || !report || report.every((r: any) => r.orphanedFiles === 0)}
+                            className="bg-red-500 hover:bg-red-600 text-white rounded-full font-bold"
+                        >
+                            {cleaning ? "Deleting..." : "Delete All Orphans"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
+    );
+}
+
+// Import Check icon for report
+import { Check } from "lucide-react";
