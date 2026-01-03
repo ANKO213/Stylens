@@ -1,37 +1,37 @@
+
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(req: NextRequest) {
-    const { searchParams } = new URL(req.url);
-    const url = searchParams.get("url");
-    const filename = searchParams.get("filename") || "download.png";
+    const url = req.nextUrl.searchParams.get("url");
+    const filename = req.nextUrl.searchParams.get("filename") || "image.png";
 
     if (!url) {
-        return NextResponse.json({ error: "Missing URL param" }, { status: 400 });
+        return new NextResponse("Missing URL", { status: 400 });
     }
 
-    // Security: Only allow internal R2 domains or known domains if strictness is needed
-    // For now, we assume the client sends valid image URLs. 
-    // Ideally check if url.startsWith(R2_PUBLIC_DOMAIN)
+    // Security: Ensure URL matches our R2 domain to prevent open proxy abuse
+    // This is a basic check.
+    const r2Domain = process.env.R2_PUBLIC_DOMAIN || "r2.dev";
+    if (!url.includes(r2Domain) && !url.includes("r2.dev")) {
+        // Allow if it's strictly from our known domains
+        return new NextResponse("Invalid URL domain", { status: 403 });
+    }
 
     try {
         const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch image: ${response.statusText}`);
-        }
+        if (!response.ok) throw new Error("Failed to fetch image");
 
-        const contentType = response.headers.get("Content-Type") || "image/png";
+        const contentType = response.headers.get("content-type") || "image/png";
         const buffer = await response.arrayBuffer();
 
         return new NextResponse(buffer, {
             headers: {
                 "Content-Type": contentType,
                 "Content-Disposition": `attachment; filename="${filename}"`,
-                "Cache-Control": "public, max-age=3600"
-            }
+            },
         });
-
-    } catch (error: any) {
+    } catch (error) {
         console.error("Download Proxy Error:", error);
-        return NextResponse.json({ error: "Failed to download image" }, { status: 500 });
+        return new NextResponse("Failed to download image", { status: 500 });
     }
 }

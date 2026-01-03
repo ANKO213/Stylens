@@ -142,26 +142,23 @@ export function GenerationModal({ open, onOpenChange, pin, user, userAvatar }: G
 
     const handleDownload = async () => {
         if (!resultUrl) return;
-        try {
-            // Toast loading state if needed, or just proceed
-            const response = await fetch(resultUrl);
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            // Generate a nice filename
-            const date = new Date().toISOString().split('T')[0];
-            link.download = `stylens-${pin?.title || 'portrait'}-${date}.png`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            window.URL.revokeObjectURL(url);
-            toast.success("Image saved to downloads");
-        } catch (e) {
-            console.error("Download error:", e);
-            toast.error("Download failed, opening in new tab...");
-            window.open(resultUrl, '_blank');
-        }
+
+        // Generate a nice filename
+        const date = new Date().toISOString().split('T')[0];
+        const filename = `stylens-${pin?.title || 'portrait'}-${date}.png`;
+
+        // Use our proxy to bypass CORS and force download
+        const downloadUrl = `/api/download?url=${encodeURIComponent(resultUrl)}&filename=${encodeURIComponent(filename)}`;
+
+        // Trigger download
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = filename; // Backup hint
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        toast.success("Downloading...");
     };
 
     if (!open) return null;
