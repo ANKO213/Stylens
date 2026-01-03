@@ -75,10 +75,8 @@ export async function uploadAvatars(formData: FormData) {
         const processUpload = async (file: File, name: string) => {
             const buffer = Buffer.from(await file.arrayBuffer());
 
-            // Extract extension
-            const ext = file.name.split('.').pop() || "jpg"; // default to jpg if none
-            const fileName = `${name}.${ext}`; // "main.jpg", "side1.png"
-
+            // No extension to ensure predictable URLs for the client (side1, side2)
+            const fileName = name;
             // Path: avatars/{email}/{fileName}
             const key = `${folderPrefix}${fileName}`;
 
