@@ -93,6 +93,25 @@ export function AdminFeedTable({ initialStyles, userEmail }: AdminFeedTableProps
 
         setIsLoading(true);
         try {
+            // 1. Check if image changed and delete old one
+            if (formData.image_url && formData.image_url !== editingStyle.image_url) {
+                try {
+                    const oldUrl = editingStyle.image_url;
+                    // Extract path: everything after 'style-images/'
+                    // e.g. .../style-images/styles/foo.jpg -> styles/foo.jpg
+                    // e.g. .../style-images/feed/bar.jpg -> feed/bar.jpg
+                    const path = oldUrl.split('style-images/')[1];
+
+                    if (path) {
+                        console.log("Cleaning up old image:", path);
+                        await supabase.storage.from('style-images').remove([path]);
+                    }
+                } catch (cleanupError) {
+                    console.error("Failed to cleanup old image:", cleanupError);
+                    // Don't block the update if cleanup fails
+                }
+            }
+
             const result = await updateStyle(editingStyle.id, formData);
 
             if (!result.success) {
