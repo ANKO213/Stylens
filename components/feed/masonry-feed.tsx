@@ -132,17 +132,48 @@ export function MasonryFeed() {
         );
     }
 
+    // --- Manual Masonry Layout (Prevent Jumping) ---
+    const columns = [[], [], []] as Pin[][];
+    if (pins.length > 0) {
+        pins.forEach((pin, i) => {
+            const colIndex = i % 3;
+            columns[colIndex].push(pin);
+        });
+    }
+
     return (
         <div className="max-w-[1800px] mx-auto px-4 py-6">
-            <div className="columns-1 md:columns-3 gap-4 space-y-4">
-                {pins.map((pin) => (
-                    <PinCard
-                        key={pin.id}
-                        pin={pin}
-                        onClick={() => handlePinClick(pin)}
-                    />
-                ))}
+            {/* Flex Grid instead of CSS Columns */}
+            <div className="flex gap-4">
+                {/* Column 1 */}
+                <div className="flex-1 space-y-4">
+                    {columns[0].map(pin => (
+                        <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} />
+                    ))}
+                </div>
+                {/* Column 2 (Hidden on mobile) */}
+                <div className="hidden md:block flex-1 space-y-4">
+                    {columns[1].map(pin => (
+                        <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} />
+                    ))}
+                </div>
+                {/* Column 3 (Hidden on mobile) */}
+                <div className="hidden md:block flex-1 space-y-4">
+                    {columns[2].map(pin => (
+                        <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} />
+                    ))}
+                </div>
             </div>
+
+            {/* Mobile View: Just show all in one col? Or keep 1 col slice? 
+                Actually, simpler mobile logic: 
+                If mobile, just map all pins in one column. 
+                But for responsive consistent code, we can just hide cols 2/3 on mobile 
+                AND we must ensure that on mobile we put ALL pins in col 1?
+                
+                Let's refine the logic for responsiveness.
+            */}
+
 
             {/* JIT Auth Modal */}
             <AuthModal
