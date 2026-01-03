@@ -69,10 +69,49 @@ export function ArchiveFeed({ userEmail, userId }: ArchiveFeedProps) {
         );
     }
 
+    // Add Sync Button
+    import { RefreshCw } from "lucide-react";
+    import { Button } from "@/components/ui/button";
+    import { syncUserGenerations } from "@/app/actions/sync-archive";
+    import { toast } from "sonner";
+
+    // ... inside component ...
+
+    const handleSync = async () => {
+        setLoading(true);
+        try {
+            const result = await syncUserGenerations();
+            if (result.success) {
+                toast.success(`Synced ${result.count || 0} images from storage.`);
+                // Refetch
+                // We can't easily refetch without moving fetchGenerations out or triggering a reload/state change
+                // Let's just reload the page or trigger the useEffect by a counter
+                window.location.reload();
+            } else {
+                toast.error(result.error || "Sync failed");
+                setLoading(false);
+            }
+        } catch (e) {
+            toast.error("Sync error");
+            setLoading(false);
+        }
+    };
+
     if (generations.length === 0) {
         return (
-            <div className="h-60 flex items-center justify-center w-full">
-                <p className="text-muted-foreground">No generations yet. Start creating!</p>
+            <div className="h-60 flex flex-col gap-4 items-center justify-center w-full">
+                <p className="text-muted-foreground">No generations found in Database.</p>
+                <Button
+                    variant="outline"
+                    onClick={handleSync}
+                    className="gap-2"
+                >
+                    <RefreshCw className="w-4 h-4" />
+                    Sync with Storage
+                </Button>
+                <p className="text-xs text-muted-foreground/50">
+                    (Use this if you have images in R2 but not here)
+                </p>
             </div>
         );
     }
