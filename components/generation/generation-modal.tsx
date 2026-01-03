@@ -78,6 +78,8 @@ export function GenerationModal({ open, onOpenChange, pin, user, userAvatar }: G
 
         try {
             // Construct potential side photo URLs
+            const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://your-project.supabase.co";
+            
             // We can't know for sure if they exist without checking, but passing a 404 URL might be ignored or handled by API
             // Better to try to check if they exist or just pass them and let backend/LLM handle?
             // Since we don't have a "list" API handy here, let's construct them.
