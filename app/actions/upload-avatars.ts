@@ -91,6 +91,7 @@ export async function uploadAvatars(formData: FormData) {
 
             // Construct Public URL
             // Ensure no double slashes if domain ends with slash
+            if (!R2_PUBLIC_DOMAIN) throw new Error("R2_PUBLIC_DOMAIN is not defined");
             const domain = R2_PUBLIC_DOMAIN.replace(/\/$/, "");
             const publicUrl = `${domain}/${key}`;
 

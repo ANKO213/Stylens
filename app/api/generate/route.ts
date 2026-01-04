@@ -184,7 +184,9 @@ IMPORTANT: The character in the image MUST have the exact same facial features a
 
         try {
             const { PutObjectCommand } = await import("@aws-sdk/client-s3");
+
             const { r2, R2_BUCKET_NAME, R2_PUBLIC_DOMAIN } = await import("@/lib/r2");
+            if (!R2_PUBLIC_DOMAIN) throw new Error("R2_PUBLIC_DOMAIN is not defined");
 
             console.log(`Uploading generation to R2: ${filePath}`);
 
