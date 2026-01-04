@@ -451,7 +451,7 @@ function StorageCleanupButton() {
         setAnalyzing(true);
         try {
             const result = await analyzeStorageCleanup();
-            if (result.success) {
+            if (result.success && result.report) {
                 setReport(result.report);
                 setShowReport(true);
                 const count = result.report.reduce((acc: number, r: any) => acc + r.orphanedFiles, 0);
