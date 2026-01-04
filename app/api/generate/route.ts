@@ -125,7 +125,14 @@ IMPORTANT: The character in the image MUST have the exact same facial features a
             });
 
             console.log(`Validated ${validUrls.length}/${additionalFaceUrls.length} side images.`);
+            console.log(`[Gen Debug] Side Images Validated:`, validUrls);
         }
+
+        console.log(`[Gen Debug] FULL PAYLOAD:`, {
+            prompt: finalPrompt,
+            mainFace: faceUrl,
+            sideFaces: additionalFaceUrls
+        });
 
         const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
             method: "POST",
