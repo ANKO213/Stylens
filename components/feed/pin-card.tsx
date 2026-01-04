@@ -4,6 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import { Pin } from "@/lib/mock-data";
 import { Download, MoreHorizontal, Share2, Sparkles } from "lucide-react";
+import { toast } from "sonner";
 
 interface PinCardProps {
     pin: Pin;
@@ -36,7 +37,15 @@ export function PinCard({ pin, onClick }: PinCardProps) {
 
                 {/* Top Right - Share Button */}
                 <div className="flex justify-end">
-                    <button className="size-[40px] flex items-center justify-center bg-[rgba(26,26,26,0.8)] backdrop-blur-md border border-[rgba(255,255,255,0.1)] rounded-full hover:bg-[rgba(255,255,255,0.1)] text-white/90 transition-colors duration-300 shadow-[0px_10px_15px_-3px_rgba(0,0,0,0.1)]">
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            const url = `${window.location.origin}/?pid=${pin.id}`;
+                            navigator.clipboard.writeText(url);
+                            toast.success("Link copied to clipboard!");
+                        }}
+                        className="size-[40px] flex items-center justify-center bg-[rgba(26,26,26,0.8)] backdrop-blur-md border border-[rgba(255,255,255,0.1)] rounded-full hover:bg-[rgba(255,255,255,0.1)] text-white/90 transition-colors duration-300 shadow-[0px_10px_15px_-3px_rgba(0,0,0,0.1)] active:scale-95"
+                    >
                         <Share2 size={18} />
                     </button>
                 </div>
