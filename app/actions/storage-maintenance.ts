@@ -158,7 +158,7 @@ export async function executeStorageCleanup(filesToDelete: { bucket: string, pat
             })
         );
 
-        const deletedCount = results.reduce((a, b) => a + b, 0);
+        const deletedCount: number = results.reduce((a: number, b: number) => a + b, 0);
         return { success: true, count: deletedCount };
 
     } catch (error: any) {
