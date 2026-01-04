@@ -480,7 +480,7 @@ function StorageCleanupButton() {
                     // Batch delete not supported by our simple helper, loop or update helper?
                     // Use the helper we made
                     const res = await executeStorageCleanup(bucketReport.orphans.map((o: any) => ({ bucket: bucketName, path: o.path })));
-                    if (res.success) totalDeleted += res.count;
+                    if (res.success) totalDeleted += (res.count ?? 0);
                 }
             }
             toast.success(`Cleanup complete. Deleted ${totalDeleted} files.`);
