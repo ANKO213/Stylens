@@ -40,7 +40,14 @@ export function PinCard({ pin, onClick }: PinCardProps) {
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
-                            const url = `${window.location.origin}/?pid=${pin.id}`;
+                            // Create a friendly slug from title
+                            const slug = pin.title
+                                .toLowerCase()
+                                .trim()
+                                .replace(/[^a-z0-9]+/g, '-') // Replace non-alphanumeric with hyphens
+                                .replace(/^-+|-+$/g, '');    // Trim leading/trailing hyphens
+
+                            const url = `${window.location.origin}/${slug}`;
                             navigator.clipboard.writeText(url);
                             toast.success("Link copied to clipboard!");
                         }}

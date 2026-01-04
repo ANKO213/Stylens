@@ -11,7 +11,11 @@ import { toast } from "sonner";
 import { createClient } from "@/utils/supabase/client";
 import { useSearchParams } from "next/navigation";
 
-export function MasonryFeed() {
+interface MasonryFeedProps {
+    initialPinId?: string;
+}
+
+export function MasonryFeed({ initialPinId }: MasonryFeedProps) {
     const [pins, setPins] = useState<Pin[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -30,14 +34,22 @@ export function MasonryFeed() {
 
     // Deep Link Effect
     useEffect(() => {
-        if (!loading && pid && pins.length > 0) {
-            const targetPin = pins.find(p => p.id === pid);
+        // Check either prop or search param
+        const targetId = initialPinId || pid;
+
+        if (!loading && targetId && pins.length > 0) {
+            const targetPin = pins.find(p => p.id === targetId) ||
+                // Fallback: try to find by title if ID lookup failed (legacy/slug)
+                // Actually slug finding is done server side, so we expect ID passed here.
+                // But just in case, let's stick to ID.
+                null;
+
             if (targetPin) {
                 setActivePin(targetPin);
                 setGenerationModalOpen(true);
             }
         }
-    }, [loading, pid, pins]);
+    }, [loading, pid, initialPinId, pins]);
 
     // Initial load
     useEffect(() => {
