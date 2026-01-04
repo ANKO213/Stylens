@@ -1,11 +1,19 @@
 import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 import { AdminFeedTable } from "@/components/admin/admin-feed-table";
+import { checkAdminAccess } from "@/app/actions/admin-auth";
+import { AdminLoginForm } from "@/components/admin/admin-login-form";
 
 // Simple allowlist for the demo. In production, use database roles.
 const ADMIN_EMAILS = ["admin@example.com", "demo@example.com"];
 
 export default async function AdminFeedPage() {
+    // 1. Check Password Cookie First
+    const hasAccess = await checkAdminAccess();
+    if (!hasAccess) {
+        return <AdminLoginForm />;
+    }
+
     const supabase = await createClient();
 
     const {
@@ -15,11 +23,6 @@ export default async function AdminFeedPage() {
     if (!user) {
         return redirect("/login");
     }
-
-    // Optional: Strict Admin Check
-    // if (!ADMIN_EMAILS.includes(user.email || "")) {
-    //    return redirect("/");
-    // }
 
     const { data: styles, error } = await supabase
         .from("styles")
@@ -31,7 +34,7 @@ export default async function AdminFeedPage() {
     }
 
     return (
-        <div className="container py-10 max-w-7xl mx-auto">
+        <div className="container py-10 max-w-7xl mx-auto pt-32">
             <div className="flex items-center justify-between mb-8">
                 <div>
                     <h1 className="text-3xl font-bold tracking-[2px] text-white uppercase font-sans">Feed Management</h1>
