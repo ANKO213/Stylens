@@ -15,6 +15,10 @@ export function MasonryFeed() {
     const [pins, setPins] = useState<Pin[]>([]);
     const [loading, setLoading] = useState(true);
 
+    // Deep Linking Logic
+    const searchParams = useSearchParams();
+    const pid = searchParams.get("pid");
+
     // JIT Onboarding State
     const { user, avatarUrl } = useUserProfile();
     const [authWizardOpen, setAuthWizardOpen] = useState(false);
@@ -23,6 +27,17 @@ export function MasonryFeed() {
     // Generation State
     const [generationModalOpen, setGenerationModalOpen] = useState(false);
     const [activePin, setActivePin] = useState<Pin | null>(null);
+
+    // Deep Link Effect
+    useEffect(() => {
+        if (!loading && pid && pins.length > 0) {
+            const targetPin = pins.find(p => p.id === pid);
+            if (targetPin) {
+                setActivePin(targetPin);
+                setGenerationModalOpen(true);
+            }
+        }
+    }, [loading, pid, pins]);
 
     // Initial load
     useEffect(() => {
@@ -106,117 +121,99 @@ export function MasonryFeed() {
             }
         }
 
-        // Deep Linking Logic
-        const searchParams = useSearchParams();
-        const pid = searchParams.get("pid");
+        fetchStyles();
+    }, []);
 
-        // Effect to handle deep linking once pins are loaded
-        useEffect(() => {
-            if (!loading && pid && pins.length > 0) {
-                const targetPin = pins.find(p => p.id === pid);
-                if (targetPin) {
-                    setActivePin(targetPin);
-                    setGenerationModalOpen(true);
-                    // Optional: remove param from URL to avoid re-opening on refresh? 
-                    // keeping it is fine for sharing context.
-                }
-            }
-        }, [loading, pid, pins]);
+    // --- Click Interception Logic ---
+    const handlePinClick = (pin: Pin) => {
+        // 1. Check Auth & Profile
+        const isReady = user && avatarUrl;
 
-        // Initial load
-        useEffect(() => {
-            async function fetchStyles() {
+        if (isReady) {
+            // 3. IF Logged In AND Face Exists: Immediately trigger generation
+            triggerGeneration(pin);
+        } else {
+            // 1. IF NOT Logged In OR No Face: Open Wizard
+            setPendingPin(pin);
+            setAuthWizardOpen(true);
+        }
+    };
 
-                // --- Click Interception Logic ---
-                const handlePinClick = (pin: Pin) => {
-                    // 1. Check Auth & Profile
-                    const isReady = user && avatarUrl;
+    const onWizardComplete = () => {
+        // Resume generation for the pending pin
+        if (pendingPin) {
+            triggerGeneration(pendingPin);
+            setPendingPin(null);
+        }
+    };
 
-                    if (isReady) {
-                        // 3. IF Logged In AND Face Exists: Immediately trigger generation
-                        triggerGeneration(pin);
-                    } else {
-                        // 1. IF NOT Logged In OR No Face: Open Wizard
-                        setPendingPin(pin);
-                        setAuthWizardOpen(true);
-                    }
-                };
+    const triggerGeneration = (pin: Pin) => {
+        // toast.success(`Starting generation...`);
+        setActivePin(pin);
+        setGenerationModalOpen(true);
+    };
 
-                const onWizardComplete = () => {
-                    // Resume generation for the pending pin
-                    if (pendingPin) {
-                        triggerGeneration(pendingPin);
-                        setPendingPin(null);
-                    }
-                };
+    if (loading) {
+        return (
+            <div className="h-60 flex items-center justify-center w-full">
+                <Loader2 className="animate-spin text-muted-foreground w-10 h-10" />
+            </div>
+        );
+    }
 
-                const triggerGeneration = (pin: Pin) => {
-                    // toast.success(`Starting generation...`);
-                    setActivePin(pin);
-                    setGenerationModalOpen(true);
-                };
+    // --- Manual Masonry Layout (Prevent Jumping) ---
+    const columns = [[], [], []] as Pin[][];
+    if (pins.length > 0) {
+        pins.forEach((pin, i) => {
+            const colIndex = i % 3;
+            columns[colIndex].push(pin);
+        });
+    }
 
-                if (loading) {
-                    return (
-                        <div className="h-60 flex items-center justify-center w-full">
-                            <Loader2 className="animate-spin text-muted-foreground w-10 h-10" />
-                        </div>
-                    );
-                }
+    return (
+        <div className="max-w-[1800px] mx-auto px-4 py-6">
+            {/* Desktop View (MD+) - Manual Flex Grid to prevent jumping */}
+            <div className="hidden md:flex gap-4">
+                <div className="flex-1 space-y-4">
+                    {columns[0].map(pin => (
+                        <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} />
+                    ))}
+                </div>
+                <div className="flex-1 space-y-4">
+                    {columns[1].map(pin => (
+                        <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} />
+                    ))}
+                </div>
+                <div className="flex-1 space-y-4">
+                    {columns[2].map(pin => (
+                        <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} />
+                    ))}
+                </div>
+            </div>
 
-                // --- Manual Masonry Layout (Prevent Jumping) ---
-                const columns = [[], [], []] as Pin[][];
-                if (pins.length > 0) {
-                    pins.forEach((pin, i) => {
-                        const colIndex = i % 3;
-                        columns[colIndex].push(pin);
-                    });
-                }
-
-                return (
-                    <div className="max-w-[1800px] mx-auto px-4 py-6">
-                        {/* Desktop View (MD+) - Manual Flex Grid to prevent jumping */}
-                        <div className="hidden md:flex gap-4">
-                            <div className="flex-1 space-y-4">
-                                {columns[0].map(pin => (
-                                    <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} />
-                                ))}
-                            </div>
-                            <div className="flex-1 space-y-4">
-                                {columns[1].map(pin => (
-                                    <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} />
-                                ))}
-                            </div>
-                            <div className="flex-1 space-y-4">
-                                {columns[2].map(pin => (
-                                    <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} />
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Mobile View (< MD) - Simple Stack */}
-                        <div className="md:hidden space-y-4">
-                            {pins.map(pin => (
-                                <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} />
-                            ))}
-                        </div>
+            {/* Mobile View (< MD) - Simple Stack */}
+            <div className="md:hidden space-y-4">
+                {pins.map(pin => (
+                    <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} />
+                ))}
+            </div>
 
 
-                        {/* JIT Auth Modal */}
-                        <AuthModal
-                            open={authWizardOpen}
-                            onOpenChange={setAuthWizardOpen}
-                            onComplete={onWizardComplete}
-                        />
+            {/* JIT Auth Modal */}
+            <AuthModal
+                open={authWizardOpen}
+                onOpenChange={setAuthWizardOpen}
+                onComplete={onWizardComplete}
+            />
 
-                        {/* AI Generation Modal */}
-                        <GenerationModal
-                            open={generationModalOpen}
-                            onOpenChange={setGenerationModalOpen}
-                            pin={activePin}
-                            user={user}
-                            userAvatar={avatarUrl}
-                        />
-                    </div>
-                );
-            }
+            {/* AI Generation Modal */}
+            <GenerationModal
+                open={generationModalOpen}
+                onOpenChange={setGenerationModalOpen}
+                pin={activePin}
+                user={user}
+                userAvatar={avatarUrl}
+            />
+        </div>
+    );
+}
