@@ -1,12 +1,12 @@
+"use strict";
 "use client";
-
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Copy, Check, Facebook, Twitter, Linkedin, Link } from "lucide-react";
+import { Copy, Facebook, Linkedin, MessageCircle, Send, Twitter, X } from "lucide-react";
 import { useState, useEffect } from "react";
-import { Pin } from "@/lib/mock-data";
 import { toast } from "sonner";
+import { Pin } from "@/lib/mock-data";
 
 interface ShareModalProps {
     open: boolean;
@@ -19,102 +19,135 @@ export function ShareModal({ open, onOpenChange, pin }: ShareModalProps) {
     const [shareUrl, setShareUrl] = useState("");
 
     useEffect(() => {
-        if (pin && typeof window !== "undefined") {
-            setShareUrl(`${window.location.origin}/?pid=${pin.id}`);
+        if (pin && typeof window !== 'undefined') {
+            const slug = pin.title
+                .toLowerCase()
+                .trim()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '');
+            setShareUrl(`${window.location.origin}/${slug}`);
         }
-    }, [pin, open]);
+    }, [pin]);
 
-    const handleCopy = async () => {
-        try {
-            await navigator.clipboard.writeText(shareUrl);
-            setCopied(true);
-            toast.success("Link copied to clipboard");
-            setTimeout(() => setCopied(false), 2000);
-        } catch (err) {
-            toast.error("Failed to copy link");
-        }
+    const handleCopy = () => {
+        navigator.clipboard.writeText(shareUrl);
+        setCopied(true);
+        toast.success("Link copied!");
+        setTimeout(() => setCopied(false), 2000);
     };
 
     const handleSocialShare = (platform: string) => {
+        if (!shareUrl) return;
         let url = "";
-        const text = `Check out this style on Ultraviolet: ${pin?.title}`;
-        
+        const text = `Check out this AI style "${pin?.title}" on Stylens!`;
+
         switch (platform) {
-            case 'twitter':
-                url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`;
+            case "telegram":
+                url = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(text)}`;
                 break;
-            case 'facebook':
+            case "whatsapp":
+                url = `https://wa.me/?text=${encodeURIComponent(text + " " + shareUrl)}`;
+                break;
+            case "twitter":
+                url = `https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(text)}`;
+                break;
+            case "facebook":
                 url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
                 break;
-            case 'linkedin':
+            case "linkedin":
                 url = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`;
                 break;
         }
-
-        if (url) {
-            window.open(url, '_blank', 'noopener,noreferrer');
-        }
+        window.open(url, '_blank');
     };
-
-    if (!pin) return null;
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-md bg-[#18181b] border-white/10 text-white p-0 overflow-hidden gap-0 rounded-3xl">
-                <DialogHeader className="p-6 pb-2">
-                    <DialogTitle className="text-xl font-medium text-center">Share with Friends</DialogTitle>
-                </DialogHeader>
+            <DialogContent className="max-w-md w-full bg-[#121212]/90 backdrop-blur-xl border border-white/10 rounded-[32px] p-0 overflow-hidden shadow-2xl">
+                <div className="relative p-6 pt-12 text-center space-y-2">
+                    {/* Close Button - Custom Round */}
+                    <button
+                        onClick={() => onOpenChange(false)}
+                        className="absolute right-4 top-4 w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors"
+                    >
+                        <X size={14} className="text-white/70" />
+                    </button>
 
-                <div className="p-6 pt-2 space-y-6">
-                    {/* Preview (Optional) */}
-                    <div className="flex items-center gap-4 bg-white/5 p-3 rounded-2xl border border-white/5">
-                         <div className="h-12 w-12 rounded-xl bg-gray-800 overflow-hidden relative shrink-0">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={pin.imageUrl} alt={pin.title} className="h-full w-full object-cover" />
-                        </div>
-                        <div className="overflow-hidden">
-                            <h4 className="font-medium truncate text-sm">{pin.title}</h4>
-                            <p className="text-xs text-white/50 truncate">By {pin.author}</p>
-                        </div>
-                    </div>
+                    <DialogTitle className="text-2xl font-bold text-white tracking-wide">
+                        Share with Friends
+                    </DialogTitle>
+                    <p className="text-zinc-400 text-sm">
+                        Inspire others with this aesthetic style.
+                    </p>
+                </div>
 
+                <div className="px-6 pb-8 space-y-8">
                     {/* Copy Link Section */}
-                    <div className="space-y-2">
-                        <label className="text-xs font-medium text-white/50 uppercase tracking-wider ml-1">Page Link</label>
-                        <div className="relative">
-                            <Input 
-                                value={shareUrl} 
-                                readOnly 
-                                className="pr-12 bg-black/20 border-white/10 h-11 rounded-xl text-white/80 font-mono text-sm focus-visible:ring-1 focus-visible:ring-white/20"
-                            />
+                    <div className="space-y-4">
+                        <label className="text-xs font-bold uppercase tracking-widest text-zinc-500 ml-1">
+                            Share link
+                        </label>
+                        <div className="flex items-center gap-2 bg-black/40 border border-white/5 rounded-2xl p-2 pr-2.5 pl-4 group hover:border-white/10 transition-colors">
+                            <span className="flex-1 text-sm text-zinc-300 truncate font-mono">
+                                {shareUrl}
+                            </span>
                             <Button
-                                size="icon"
-                                variant="ghost"
-                                className="absolute right-1 top-1 h-9 w-9 text-white/50 hover:text-white hover:bg-white/10 rounded-lg transition-all"
                                 onClick={handleCopy}
+                                size="sm"
+                                className="h-9 px-4 rounded-xl bg-white text-black hover:bg-zinc-200 font-medium transition-all active:scale-95"
                             >
-                                {copied ? <Check className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4" />}
+                                {copied ? "Copied" : <Copy size={14} />}
                             </Button>
                         </div>
                     </div>
 
                     {/* Social Icons */}
-                    <div className="grid grid-cols-4 gap-2">
-                        <Button variant="outline" className="h-12 border-white/10 bg-white/5 hover:bg-white/10 hover:text-white rounded-xl gap-2 border-dashed" onClick={handleCopy}>
-                            <Link className="h-4 w-4" />
-                        </Button>
-                         <Button variant="outline" className="h-12 border-white/10 bg-[#1DA1F2]/10 hover:bg-[#1DA1F2]/20 text-[#1DA1F2] border-transparent hover:border-[#1DA1F2]/50 rounded-xl" onClick={() => handleSocialShare('twitter')}>
-                            <Twitter className="h-5 w-5" />
-                        </Button>
-                        <Button variant="outline" className="h-12 border-white/10 bg-[#1877F2]/10 hover:bg-[#1877F2]/20 text-[#1877F2] border-transparent hover:border-[#1877F2]/50 rounded-xl" onClick={() => handleSocialShare('facebook')}>
-                            <Facebook className="h-5 w-5" />
-                        </Button>
-                        <Button variant="outline" className="h-12 border-white/10 bg-[#0A66C2]/10 hover:bg-[#0A66C2]/20 text-[#0A66C2] border-transparent hover:border-[#0A66C2]/50 rounded-xl" onClick={() => handleSocialShare('linkedin')}>
-                            <Linkedin className="h-5 w-5" />
-                        </Button>
+                    <div className="space-y-4">
+                        <label className="text-xs font-bold uppercase tracking-widest text-zinc-500 ml-1">
+                            Share to
+                        </label>
+                        <div className="flex items-center justify-center gap-4">
+                            <SocialButton
+                                icon={<Send size={20} className="-ml-0.5 mt-0.5" />}
+                                color="bg-[#229ED9]"
+                                onClick={() => handleSocialShare("telegram")}
+                                label="Telegram"
+                            />
+                            <SocialButton
+                                icon={<MessageCircle size={20} />}
+                                color="bg-[#25D366]"
+                                onClick={() => handleSocialShare("whatsapp")}
+                                label="WhatsApp"
+                            />
+                            <SocialButton
+                                icon={<Twitter size={20} />}
+                                color="bg-black border border-white/10"
+                                onClick={() => handleSocialShare("twitter")}
+                                label="X"
+                            />
+                            <SocialButton
+                                icon={<Facebook size={20} />}
+                                color="bg-[#1877F2]"
+                                onClick={() => handleSocialShare("facebook")}
+                                label="Facebook"
+                            />
+                        </div>
                     </div>
                 </div>
             </DialogContent>
         </Dialog>
+    );
+}
+
+function SocialButton({ icon, color, onClick, label }: { icon: React.ReactNode, color: string, onClick: () => void, label: string }) {
+    return (
+        <div className="flex flex-col items-center gap-2 group cursor-pointer" onClick={onClick}>
+            <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white shadow-lg transition-transform duration-300 group-hover:scale-110 group-active:scale-95 ${color}`}>
+                {icon}
+            </div>
+            <span className="text-[10px] uppercase font-medium tracking-wide text-zinc-500 group-hover:text-zinc-300 transition-colors">
+                {label}
+            </span>
+        </div>
     );
 }

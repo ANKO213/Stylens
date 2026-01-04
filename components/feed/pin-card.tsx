@@ -9,9 +9,10 @@ import { toast } from "sonner";
 interface PinCardProps {
     pin: Pin;
     onClick?: () => void;
+    onShare?: (e: React.MouseEvent) => void;
 }
 
-export function PinCard({ pin, onClick }: PinCardProps) {
+export function PinCard({ pin, onClick, onShare }: PinCardProps) {
     const [isVisible, setIsVisible] = useState(true);
 
     if (!isVisible) return null;
@@ -40,16 +41,7 @@ export function PinCard({ pin, onClick }: PinCardProps) {
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
-                            // Create a friendly slug from title
-                            const slug = pin.title
-                                .toLowerCase()
-                                .trim()
-                                .replace(/[^a-z0-9]+/g, '-') // Replace non-alphanumeric with hyphens
-                                .replace(/^-+|-+$/g, '');    // Trim leading/trailing hyphens
-
-                            const url = `${window.location.origin}/${slug}`;
-                            navigator.clipboard.writeText(url);
-                            toast.success("Link copied to clipboard!");
+                            onShare?.(e);
                         }}
                         className="size-[40px] flex items-center justify-center bg-[rgba(26,26,26,0.8)] backdrop-blur-md border border-[rgba(255,255,255,0.1)] rounded-full hover:bg-[rgba(255,255,255,0.1)] text-white/90 transition-colors duration-300 shadow-[0px_10px_15px_-3px_rgba(0,0,0,0.1)] active:scale-95"
                     >

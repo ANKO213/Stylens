@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { useUserProfile } from "@/hooks/use-user-profile";
 import { AuthModal } from "@/components/auth/auth-modal";
 import { GenerationModal } from "@/components/generation/generation-modal"; // Import
+import { ShareModal } from "@/components/share/share-modal"; // Import
 import { toast } from "sonner";
 import { createClient } from "@/utils/supabase/client";
 import { useSearchParams } from "next/navigation";
@@ -31,6 +32,10 @@ export function MasonryFeed({ initialPinId }: MasonryFeedProps) {
     // Generation State
     const [generationModalOpen, setGenerationModalOpen] = useState(false);
     const [activePin, setActivePin] = useState<Pin | null>(null);
+
+    // Share State
+    const [shareModalOpen, setShareModalOpen] = useState(false);
+    const [activeSharePin, setActiveSharePin] = useState<Pin | null>(null);
 
     // Deep Link Effect
     useEffect(() => {
@@ -151,6 +156,11 @@ export function MasonryFeed({ initialPinId }: MasonryFeedProps) {
         }
     };
 
+    const handleShareClick = (pin: Pin) => {
+        setActiveSharePin(pin);
+        setShareModalOpen(true);
+    };
+
     const onWizardComplete = () => {
         // Resume generation for the pending pin
         if (pendingPin) {
@@ -188,17 +198,17 @@ export function MasonryFeed({ initialPinId }: MasonryFeedProps) {
             <div className="hidden md:flex gap-4">
                 <div className="flex-1 space-y-4">
                     {columns[0].map(pin => (
-                        <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} />
+                        <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} onShare={() => handleShareClick(pin)} />
                     ))}
                 </div>
                 <div className="flex-1 space-y-4">
                     {columns[1].map(pin => (
-                        <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} />
+                        <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} onShare={() => handleShareClick(pin)} />
                     ))}
                 </div>
                 <div className="flex-1 space-y-4">
                     {columns[2].map(pin => (
-                        <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} />
+                        <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} onShare={() => handleShareClick(pin)} />
                     ))}
                 </div>
             </div>
@@ -206,7 +216,7 @@ export function MasonryFeed({ initialPinId }: MasonryFeedProps) {
             {/* Mobile View (< MD) - Simple Stack */}
             <div className="md:hidden space-y-4">
                 {pins.map(pin => (
-                    <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} />
+                    <PinCard key={pin.id} pin={pin} onClick={() => handlePinClick(pin)} onShare={() => handleShareClick(pin)} />
                 ))}
             </div>
 
@@ -225,6 +235,13 @@ export function MasonryFeed({ initialPinId }: MasonryFeedProps) {
                 pin={activePin}
                 user={user}
                 userAvatar={avatarUrl}
+            />
+
+            {/* Visual Share Modal */}
+            <ShareModal
+                open={shareModalOpen}
+                onOpenChange={setShareModalOpen}
+                pin={activeSharePin}
             />
         </div>
     );
