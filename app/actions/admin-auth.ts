@@ -7,7 +7,7 @@ const COOKIE_NAME = "stylens_admin_access";
 
 export async function verifyAdminPassword(password: string) {
     if (password === ADMIN_PASSWORD) {
-        cookies().set(COOKIE_NAME, "true", {
+        (await cookies()).set(COOKIE_NAME, "true", {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             maxAge: 60 * 60 * 24 * 7, // 1 week
@@ -19,7 +19,7 @@ export async function verifyAdminPassword(password: string) {
 }
 
 export async function checkAdminAccess() {
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const hasAccess = cookieStore.get(COOKIE_NAME)?.value === "true";
     return hasAccess;
 }
