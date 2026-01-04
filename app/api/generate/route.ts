@@ -91,47 +91,49 @@ IMPORTANT: The character in the image MUST have the exact same facial features a
             }
         ];
 
-        // Add Main Face Image if available
-        if (faceUrl) {
+        // --- REF ACTOR: FETCH ALL AVATARS FROM R2 ---
+        // Instead of relying on client URLs, we fetch everything in avatars/{email}/
+
+        const avatarFolderPrefix = `avatars/${sessionUser.email}/`;
+        const { ListObjectsV2Command } = await import("@aws-sdk/client-s3");
+        const { r2, R2_BUCKET_NAME, R2_PUBLIC_DOMAIN } = await import("@/lib/r2");
+
+        if (!R2_PUBLIC_DOMAIN) throw new Error("R2_PUBLIC_DOMAIN is not defined");
+
+        console.log(`[Gen R2] Listing avatars from: ${avatarFolderPrefix}`);
+
+        const listCommand = new ListObjectsV2Command({
+            Bucket: R2_BUCKET_NAME,
+            Prefix: avatarFolderPrefix
+        });
+
+        const listResponse = await r2.send(listCommand);
+        const avatarFiles = listResponse.Contents || [];
+
+        console.log(`[Gen R2] Found ${avatarFiles.length} avatar files.`);
+
+        // Construct valid public URLs
+        const validAvatarUrls = avatarFiles.map(file => {
+            // Ensure no double slashes
+            const domain = R2_PUBLIC_DOMAIN.replace(/\/$/, "");
+            return `${domain}/${file.Key}`;
+        });
+
+        if (validAvatarUrls.length === 0) {
+            return NextResponse.json({ error: "No avatars found. Please upload photos first." }, { status: 400 });
+        }
+
+        // Add ALL avatars to the message content
+        validAvatarUrls.forEach(url => {
             messages[0].content.push({
                 "type": "image_url",
-                "image_url": { "url": faceUrl }
+                "image_url": { "url": url }
             });
-        }
-
-        // Add Additional Face Images if available (VALIDATE EXISTENCE FIRST)
-        if (additionalFaceUrls && Array.isArray(additionalFaceUrls)) {
-            const validUrls: string[] = [];
-
-            // Validate URLs in parallel to save time
-            await Promise.all(additionalFaceUrls.map(async (url: string) => {
-                if (!url) return;
-                try {
-                    // Quick check if file exists (HEAD)
-                    const check = await fetch(url, { method: "HEAD" });
-                    if (check.ok) {
-                        validUrls.push(url);
-                    }
-                } catch (e) {
-                    // Ignore invalid
-                }
-            }));
-
-            validUrls.forEach((url) => {
-                messages[0].content.push({
-                    "type": "image_url",
-                    "image_url": { "url": url }
-                });
-            });
-
-            console.log(`Validated ${validUrls.length}/${additionalFaceUrls.length} side images.`);
-            console.log(`[Gen Debug] Side Images Validated:`, validUrls);
-        }
+        });
 
         console.log(`[Gen Debug] FULL PAYLOAD:`, {
             prompt: finalPrompt,
-            mainFace: faceUrl,
-            sideFaces: additionalFaceUrls
+            avatars: validAvatarUrls
         });
 
         const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
