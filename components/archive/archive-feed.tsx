@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ArchiveCard } from "./archive-card";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw, Image as ImageIcon, Grid } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { ShareModal } from "@/components/share/share-modal";
 import { Button } from "@/components/ui/button";
@@ -90,19 +90,36 @@ export function ArchiveFeed({ userEmail, userId }: ArchiveFeedProps) {
 
     if (generations.length === 0) {
         return (
-            <div className="h-60 flex flex-col gap-4 items-center justify-center w-full">
-                <p className="text-muted-foreground">No generations found in Database.</p>
-                <Button
-                    variant="outline"
-                    onClick={handleSync}
-                    className="gap-2"
-                >
-                    <RefreshCw className="w-4 h-4" />
-                    Sync with Storage
-                </Button>
-                <p className="text-xs text-muted-foreground/50">
-                    (Use this if you have images in R2 but not here, e.g. from before the migration update)
-                </p>
+            <div className="h-[60vh] flex flex-col items-center justify-center py-20 text-center space-y-4">
+                <div className="w-16 h-16 rounded-full bg-zinc-900 flex items-center justify-center mb-2">
+                    <ImageIcon className="w-8 h-8 text-zinc-500" />
+                </div>
+                <div>
+                    <h3 className="text-lg font-medium text-white">No generated photos yet</h3>
+                    <p className="text-zinc-500 text-sm mt-1 max-w-sm mx-auto">
+                        You haven't generated any photos yet. Ready to create your first masterpiece?
+                    </p>
+                </div>
+                <div className="flex flex-col gap-3 mt-4">
+                    <Button
+                        variant="outline"
+                        className="border-zinc-700 bg-transparent text-white hover:bg-zinc-800 rounded-full px-8"
+                        onClick={() => window.location.href = "/"}
+                    >
+                        <Grid className="w-4 h-4 mr-2" />
+                        Go to Feed
+                    </Button>
+
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleSync}
+                        className="text-zinc-600 hover:text-zinc-400 text-xs h-auto py-1"
+                    >
+                        <RefreshCw className="w-3 h-3 mr-1.5" />
+                        Missing images? Sync with Storage
+                    </Button>
+                </div>
             </div>
         );
     }
