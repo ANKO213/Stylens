@@ -345,7 +345,27 @@ function GalleryGrid({ userEmail, userId }: { userEmail: string | undefined, use
     }
 
     if (images.length === 0) {
-        return <div className="text-zinc-500 text-sm">No generations yet. Start creating!</div>;
+        return (
+            <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
+                <div className="w-16 h-16 rounded-full bg-zinc-900 flex items-center justify-center mb-2">
+                    <ImageIcon className="w-8 h-8 text-zinc-500" />
+                </div>
+                <div>
+                    <h3 className="text-lg font-medium text-white">No generated photos yet</h3>
+                    <p className="text-zinc-500 text-sm mt-1 max-w-sm mx-auto">
+                        You haven't generated any photos yet. Ready to create your first masterpiece?
+                    </p>
+                </div>
+                <Button
+                    variant="outline"
+                    className="mt-4 border-zinc-700 bg-transparent text-white hover:bg-zinc-800 rounded-full"
+                    onClick={() => window.location.href = "/"}
+                >
+                    <Grid className="w-4 h-4 mr-2" />
+                    Go to Feed
+                </Button>
+            </div>
+        );
     }
 
     return (
