@@ -145,6 +145,18 @@ export function FaceUpload({ onUpload, isLoading = false, onClose }: FaceUploadP
         }
     };
 
+    // Auto-close success dialog
+    useEffect(() => {
+        if (uploadStatus === "success") {
+            const timer = setTimeout(() => {
+                if (slots.main.file) {
+                    onUpload(slots.main.file);
+                }
+            }, 1500);
+            return () => clearTimeout(timer);
+        }
+    }, [uploadStatus, slots.main.file, onUpload]);
+
     const handleSave = async () => {
         // Must have at least main photo
         if (!slots.main.file) {
@@ -162,8 +174,8 @@ export function FaceUpload({ onUpload, isLoading = false, onClose }: FaceUploadP
         // Validate Main Photo
         const isValid = await validateFace(slots.main.file);
         if (!isValid) {
-            setErrorMsg("Main photo verification failed. Not clear enough.");
-            setUploadStatus("error");
+            toast.error("Main photo verification failed. Not clear enough.");
+            setUploadStatus("idle"); // Reset to idle so user can try again
             return;
         }
 
@@ -180,16 +192,12 @@ export function FaceUpload({ onUpload, isLoading = false, onClose }: FaceUploadP
             if (result.error) throw new Error(result.error);
 
             setUploadStatus("success");
-
-            // Trigger parent callback
-            setTimeout(async () => {
-                await onUpload(slots.main.file!);
-            }, 1000);
+            // Auto-close useEffect handles the rest
 
         } catch (err: any) {
             console.error(err);
-            setUploadStatus("error");
-            setErrorMsg(err.message || "Failed to upload photos");
+            setUploadStatus("idle"); // Reset to idle on error
+            toast.error(err.message || "Failed to upload photos");
         }
     };
 
@@ -375,35 +383,16 @@ export function FaceUpload({ onUpload, isLoading = false, onClose }: FaceUploadP
                         </div>
                         <AlertDialogTitle className="text-xl text-center">Reference Photos Saved</AlertDialogTitle>
                         <AlertDialogDescription className="text-center text-zinc-400">
-                            Your digital profile has been updated. The AI will now use these photos for generation.
+                            Validating and updating your profile...
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    {/* No footer buttons needed really, or simple OK because parent closes naturally */}
-                    <div className="pb-4" />
+                    {/* Footers matching visual style but maybe simple loader if auto-closing */}
+                    <div className="h-2 w-full bg-zinc-900 rounded-full mt-6 overflow-hidden">
+                        <div className="h-full bg-green-500 animate-[progress_1.5s_ease-in-out_forwards] w-full origin-left" />
+                    </div>
                 </AlertDialogContent>
             </AlertDialog>
 
-            <AlertDialog open={uploadStatus === "error"}>
-                <AlertDialogContent className="bg-zinc-950 border-zinc-800 text-white sm:max-w-md rounded-2xl">
-                    <AlertDialogHeader className="flex flex-col items-center">
-                        <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center mb-4">
-                            <AlertCircle className="w-8 h-8 text-red-500" />
-                        </div>
-                        <AlertDialogTitle className="text-xl text-center">Upload Failed</AlertDialogTitle>
-                        <AlertDialogDescription className="text-center text-zinc-400">
-                            {errorMsg || "We couldn't verify your photo. Please ensure it meets all requirements."}
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter className="sm:justify-center w-full mt-2">
-                        <AlertDialogAction
-                            className="bg-white text-black hover:bg-zinc-200 rounded-full px-8 w-full sm:w-auto min-w-[120px]"
-                            onClick={() => setUploadStatus("idle")}
-                        >
-                            Try Again
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
         </div>
     );
 }

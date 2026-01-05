@@ -10,6 +10,7 @@ import { syncUserGenerations } from "@/app/actions/sync-archive";
 import { toast } from "sonner";
 import { getUserGenerations } from "@/app/actions/gallery";
 import { PhotoDetailModal } from "./photo-detail-modal";
+import { generateStyleDeepLink } from "@/lib/utils";
 
 interface Generation {
     id: string;
@@ -28,6 +29,11 @@ export function ArchiveFeed({ userEmail, userId }: ArchiveFeedProps) {
     const [loading, setLoading] = useState(true);
     const [shareModalOpen, setShareModalOpen] = useState(false);
     const [shareGeneration, setShareGeneration] = useState<Generation | null>(null);
+    const [shareCustomUrl, setShareCustomUrl] = useState<string | undefined>(undefined);
+
+    // New state for Detail Modal
+    const [detailModalOpen, setDetailModalOpen] = useState(false);
+    const [detailImage, setDetailImage] = useState<Generation | null>(null);
 
     useEffect(() => {
         async function fetchGenerations() {
@@ -61,7 +67,37 @@ export function ArchiveFeed({ userEmail, userId }: ArchiveFeedProps) {
     const handleShareClick = (e: React.MouseEvent, generation: Generation) => {
         e.stopPropagation();
         setShareGeneration(generation);
+
+        // Generate deep link
+        const prompt = generation.prompt || generation.title;
+        const url = generateStyleDeepLink(prompt, generation.title);
+        setShareCustomUrl(url);
+
         setShareModalOpen(true);
+    };
+
+    const handleCardClick = (generation: Generation) => {
+        setDetailImage(generation);
+        setDetailModalOpen(true);
+    };
+
+    const handleDetailShare = (url?: string) => {
+        if (detailImage) {
+            setDetailModalOpen(false); // Close detail to open share
+            setShareGeneration(detailImage);
+
+            if (url) {
+                // Use the custom deep link provided by PhotoDetailModal
+                setShareCustomUrl(url);
+            } else {
+                // Fallback (legacy)
+                const prompt = detailImage.prompt || detailImage.title;
+                const deepLink = `${window.location.origin}/?action=generate&prompt=${encodeURIComponent(prompt)}`;
+                setShareCustomUrl(deepLink);
+            }
+
+            setShareModalOpen(true);
+        }
     };
 
     const handleSync = async () => {
@@ -126,26 +162,7 @@ export function ArchiveFeed({ userEmail, userId }: ArchiveFeedProps) {
     }
 
 
-    // New state for Detail Modal
-    const [detailModalOpen, setDetailModalOpen] = useState(false);
-    const [detailImage, setDetailImage] = useState<Generation | null>(null);
 
-    const handleCardClick = (generation: Generation) => {
-        setDetailImage(generation);
-        setDetailModalOpen(true);
-    };
-
-    const handleDetailShare = () => {
-        if (detailImage) {
-            setDetailModalOpen(false); // Close detail to open share? Or keep both?
-            // Usually modals stack, but let's just switch for now or open share on top.
-            // ShareModal uses Dialog, which handles stacking well usually. 
-            // Let's open share and keep detail open? 
-            // Actually, ShareModal might cover DetailModal.
-            setShareGeneration(detailImage);
-            setShareModalOpen(true);
-        }
-    };
 
     return (
         <div className="max-w-[1800px] mx-auto px-4 py-6">
@@ -164,14 +181,20 @@ export function ArchiveFeed({ userEmail, userId }: ArchiveFeedProps) {
             <PhotoDetailModal
                 open={detailModalOpen}
                 onOpenChange={setDetailModalOpen}
-                image={detailImage}
+                image={detailImage ? {
+                    ...detailImage,
+                    url: detailImage.imageUrl
+                } : null}
                 onShare={handleDetailShare}
             />
 
             {/* Share Modal */}
             <ShareModal
                 open={shareModalOpen}
-                onOpenChange={setShareModalOpen}
+                onOpenChange={(open) => {
+                    setShareModalOpen(open);
+                    if (!open) setShareCustomUrl(undefined);
+                }}
                 pin={shareGeneration ? {
                     id: shareGeneration.id,
                     title: shareGeneration.title,
@@ -180,6 +203,7 @@ export function ArchiveFeed({ userEmail, userId }: ArchiveFeedProps) {
                     prompt: shareGeneration.prompt || shareGeneration.title,
                     heightRatio: 1.0
                 } : null}
+                url={shareCustomUrl}
             />
         </div>
     );

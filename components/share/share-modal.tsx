@@ -11,22 +11,27 @@ interface ShareModalProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     pin: Pin | null;
+    url?: string; // Optional custom URL override
 }
 
-export function ShareModal({ open, onOpenChange, pin }: ShareModalProps) {
+export function ShareModal({ open, onOpenChange, pin, url }: ShareModalProps) {
     const [copied, setCopied] = useState(false);
     const [shareUrl, setShareUrl] = useState("");
 
     useEffect(() => {
-        if (pin && typeof window !== 'undefined') {
-            const slug = pin.title
-                .toLowerCase()
-                .trim()
-                .replace(/[^a-z0-9]+/g, '-')
-                .replace(/^-+|-+$/g, '');
-            setShareUrl(`${window.location.origin}/${slug}`);
+        if (typeof window !== 'undefined') {
+            if (url) {
+                setShareUrl(url);
+            } else if (pin) {
+                const slug = pin.title
+                    .toLowerCase()
+                    .trim()
+                    .replace(/[^a-z0-9]+/g, '-')
+                    .replace(/^-+|-+$/g, '');
+                setShareUrl(`${window.location.origin}/${slug}`);
+            }
         }
-    }, [pin]);
+    }, [pin, url]);
 
     const handleCopy = () => {
         navigator.clipboard.writeText(shareUrl);

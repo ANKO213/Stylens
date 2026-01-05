@@ -2,9 +2,9 @@
 
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Share2, Download, RotateCcw } from "lucide-react";
-import { cn } from "@/lib/utils"; // Assuming cn is available
-import { toast } from "sonner"; // Assuming toast is available
+import { Share2, Download, RotateCcw, ArrowUpRight } from "lucide-react";
+import { cn, generateStyleDeepLink } from "@/lib/utils";
+import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 
 interface PhotoDetailModalProps {
@@ -16,7 +16,7 @@ interface PhotoDetailModalProps {
         title: string;
         prompt?: string;
     } | null;
-    onShare?: () => void;
+    onShare?: (url?: string) => void;
 }
 
 export function PhotoDetailModal({ open, onOpenChange, image, onShare }: PhotoDetailModalProps) {
@@ -26,12 +26,8 @@ export function PhotoDetailModal({ open, onOpenChange, image, onShare }: PhotoDe
 
     const handleDownload = async () => {
         if (!image.url) return;
-
-        // Generate a nice filename
         const date = new Date().toISOString().split('T')[0];
         const filename = `stylens-${image.title || 'archived'}-${date}.png`;
-
-        // Use proxy to bypass CORS and force download
         const downloadUrl = `/api/download?url=${encodeURIComponent(image.url)}&filename=${encodeURIComponent(filename)}`;
 
         try {
@@ -48,101 +44,104 @@ export function PhotoDetailModal({ open, onOpenChange, image, onShare }: PhotoDe
     };
 
     const handleRegenerate = () => {
-        // Prepare query params for the generation studio
-        // If we have a prompt, pass it. If not, maybe pass the image as reference?
-        // For now, let's just go to home with the image as a reference if possible, or just open the create modal.
-        // Since we are in the archive, we might not have easy access to the exact 'pin' logic.
-        // Simplest 'Regenerate' is to try and re-run the prompt.
+        const prompt = image.prompt || image.title;
+        const url = generateStyleDeepLink(prompt, image.title);
+        router.push(url);
+    };
 
-        // As a fallback/placeholder behavior:
-        onOpenChange(false);
-        toast.info("Opening Studio...");
-        // Redirect to home with query param? Or imply user opens the "Create" button manually?
-        // Better: trigger the global create modal? (That might be hard from here without context).
-        // Let's just emulate "Use as Reference" or similar.
+    const handleShare = () => {
+        if (!onShare) return;
 
-        // Actually, user asked for "Regenerate" button next to "Download".
-        // Let's make it redirect to Home with `?regenerate=${image.id}` or similar if we were fancy.
-        // For now, let's just make it redirect to home so they can generate.
-        router.push("/");
+        const prompt = image.prompt || image.title;
+        const url = generateStyleDeepLink(prompt, image.title);
+
+        onShare(url);
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => onOpenChange(false)}>
-            <div className="w-full max-w-[398px] md:scale-125 transition-transform" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+            <div
+                className="w-full max-w-[398px] md:scale-125 transition-transform"
+                onClick={(e) => e.stopPropagation()}
+            >
                 <motion.div
                     initial={{ opacity: 0, scale: 0.9, y: 20 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.9, y: 20 }}
                     transition={{ type: "spring", duration: 0.6, bounce: 0.2 }}
-                    className="relative w-full aspect-[3/4] bg-[#121212] overflow-hidden rounded-[40px] shadow-[0px_25px_50px_-12px_rgba(0,0,0,0.25)] border border-[rgba(255,255,255,0.1)] flex flex-col"
+                    className="relative w-full max-w-[398px] h-auto pb-[10px] overflow-hidden rounded-[40px] bg-[#121212] shadow-[0px_25px_50px_-12px_rgba(0,0,0,0.25)] border border-[rgba(255,255,255,0.1)]"
                 >
-                    {/* Header Controls */}
-                    <div className="absolute top-0 left-0 right-0 h-20 z-20 flex items-start justify-between p-6 bg-gradient-to-b from-black/60 to-transparent pointer-events-none">
-                        {/* Share (Top Left) */}
-                        <button
-                            onClick={onShare}
-                            className="pointer-events-auto size-[40px] bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center hover:bg-white/20 transition-colors"
-                        >
-                            <Share2 className="size-5 text-white" strokeWidth={1.5} />
-                        </button>
+                    {/* Close Button (Top Right matching GenerationModal) */}
+                    <button
+                        onClick={() => onOpenChange(false)}
+                        className="absolute top-[32px] right-[24px] md:right-[32px] z-50 size-[40px] bg-[#e0e0e0] rounded-full flex items-center justify-center shadow-[0px_10px_15px_-3px_rgba(255,255,255,0.05),0px_4px_6px_-4px_rgba(255,255,255,0.05)] hover:scale-105 transition-transform"
+                    >
+                        <ArrowUpRight className="size-5 text-black" strokeWidth={1.7} />
+                    </button>
 
-                        {/* Close (Top Right) */}
-                        <button
-                            onClick={() => onOpenChange(false)}
-                            className="pointer-events-auto size-[40px] bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center hover:bg-white/20 transition-colors"
-                        >
-                            <X className="size-5 text-white" strokeWidth={1.5} />
-                        </button>
-                    </div>
-
-                    {/* Main Image */}
-                    <div className="flex-1 relative w-full h-full bg-[#18181b]">
-                        <img
-                            src={image.url}
-                            alt={image.title}
-                            className="w-full h-full object-cover"
-                        />
-                        {/* Title Overlay (Bottom of image) */}
-                        <div className="absolute bottom-0 left-0 right-0 p-8 pt-24 bg-gradient-to-t from-black/80 via-black/40 to-transparent">
-                            <h3 className="text-white font-bold text-xl tracking-wide uppercase line-clamp-1">{image.title}</h3>
-                            {image.prompt && (
-                                <p className="text-white/60 text-xs mt-1 line-clamp-2 leading-relaxed">{image.prompt}</p>
-                            )}
+                    {/* Header Text (Top Left matching GenerationModal) */}
+                    <div className="absolute top-[18px] left-[24px] md:left-[32px] flex flex-col items-start z-10 w-[226px] p-[0px]">
+                        <div className="h-[36px] flex items-start w-full relative shrink-0">
+                            <p className="font-[300] text-[30px] leading-[36px] text-white tracking-[1.9px] uppercase font-sans">AI Studio</p>
+                        </div>
+                        <div className="h-[36px] flex items-start w-full relative shrink-0">
+                            <p className="font-bold text-[30px] leading-[36px] text-white tracking-[1.15px] uppercase font-sans line-clamp-1">
+                                {image.title || 'PORTRAIT'}
+                            </p>
                         </div>
                     </div>
 
-                    {/* Floating Text Indicator (Optional, like GenerationModal "Complete") */}
-                    <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-                        {/* Optional Title/Status could go here */}
+                    {/* Main Image Card matching GenerationModal */}
+                    <div className="relative mt-[104px] mx-auto w-[calc(100%-20px)] aspect-[3/4] bg-[#18181b] rounded-[32px] border border-[rgba(255,255,255,0.05)] overflow-hidden shadow-[0px_25px_50px_-12px_rgba(0,0,0,0.25)]">
+
+                        {/* IMAGE CONTENT */}
+                        <div className="absolute inset-0 z-0 text-center">
+                            <img
+                                src={image.url}
+                                className="w-full h-full object-cover animate-in fade-in zoom-in duration-700"
+                                alt={image.title}
+                            />
+                        </div>
+
+                        {/* Floating Buttons */}
+                        <div className="absolute bottom-[26px] w-full flex justify-center items-center gap-[8px] px-0 z-20">
+
+                            {/* Main Action Button (Download) */}
+                            <div
+                                onClick={handleDownload}
+                                className="relative h-[40px] bg-[rgba(26,26,26,0.8)] backdrop-blur-md rounded-full flex items-center justify-center gap-3 px-5 transition-all duration-300 border border-[rgba(255,255,255,0.1)] shadow-[0px_20px_25px_-5px_rgba(0,0,0,0.1),0px_8px_10px_-6px_rgba(0,0,0,0.1)] select-none cursor-pointer hover:bg-[rgba(255,255,255,0.1)] hover:scale-105"
+                            >
+                                <Download className="size-3.5 text-[#05DF72]" />
+                                <span className="font-bold text-[11px] leading-[16.5px] tracking-[0.6px] uppercase text-white whitespace-nowrap">
+                                    Download Image
+                                </span>
+                            </div>
+
+                            {/* Regenerate Button */}
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRegenerate();
+                                }}
+                                className="relative size-[40px] bg-[rgba(26,26,26,0.8)] backdrop-blur-md rounded-full flex items-center justify-center border border-[rgba(255,255,255,0.1)] shadow-[0px_20px_25px_-5px_rgba(0,0,0,0.1),0px_8px_10px_-6px_rgba(0,0,0,0.1)] hover:bg-[rgba(255,255,255,0.1)] transition-colors group/btn"
+                                title="Regenerate"
+                            >
+                                <RotateCcw className="size-4 text-white group-hover/btn:-rotate-180 transition-transform duration-500" />
+                            </button>
+
+                            {/* Share Button (Added back for parity) */}
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleShare();
+                                }}
+                                className="relative size-[40px] bg-[rgba(26,26,26,0.8)] backdrop-blur-md rounded-full flex items-center justify-center border border-[rgba(255,255,255,0.1)] shadow-[0px_20px_25px_-5px_rgba(0,0,0,0.1),0px_8px_10px_-6px_rgba(0,0,0,0.1)] hover:bg-[rgba(255,255,255,0.1)] transition-colors group/btn"
+                                title="Share"
+                            >
+                                <Share2 className="size-4 text-white group-hover/btn:scale-110 transition-transform" />
+                            </button>
+                        </div>
                     </div>
-
-                    {/* Bottom Actions Floating Bar */}
-                    <div className="absolute bottom-8 left-0 right-0 flex justify-center items-center gap-3 z-30">
-                        {/* Download (Primary) */}
-                        <button
-                            onClick={handleDownload}
-                            className="h-[44px] px-6 bg-white text-black font-bold rounded-full flex items-center gap-2 shadow-lg hover:bg-zinc-200 transition-transform active:scale-95"
-                        >
-                            <Download className="size-4" />
-                            <span className="uppercase tracking-wider text-xs">Download</span>
-                        </button>
-
-                        {/* Regenerate (Secondary) */}
-                        {/* 
-                            For now, this button effectively just restarts the flow or goes to home. 
-                            Since we don't have the "pin" object fully reconstructed in this context usually, 
-                            we might just label it "Create Similar" or similar logic in future.
-                        */}
-                        <button
-                            onClick={handleRegenerate}
-                            className="size-[44px] bg-black/60 backdrop-blur-md border border-white/10 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-black/80 transition-transform active:scale-95 group"
-                            title="Regenerate"
-                        >
-                            <RotateCcw className="size-4 group-hover:-rotate-180 transition-transform duration-500" />
-                        </button>
-                    </div>
-
                 </motion.div>
             </div>
         </div>

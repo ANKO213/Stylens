@@ -39,7 +39,42 @@ export function MasonryFeed({ initialPinId }: MasonryFeedProps) {
 
     // Deep Link Effect
     useEffect(() => {
-        // Check either prop or search param
+        // 1. Check for Generation Action
+        const action = searchParams.get("action");
+        const prompt = searchParams.get("prompt");
+        const styleName = searchParams.get("style");
+
+        if (!loading && action === "generate" && prompt) {
+            // 1. Try to find the original Style Pin if style name is provided
+            if (styleName && pins.length > 0) {
+                // Normalize function: remove all non-alphanumeric chars and lowercase
+                const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+                const target = normalize(styleName);
+                const matchedPin = pins.find(p => normalize(p.title).includes(target) || target.includes(normalize(p.title)));
+
+                if (matchedPin) {
+                    setActivePin(matchedPin);
+                    setGenerationModalOpen(true);
+                    return;
+                }
+            }
+
+            // 2. Fallback: Create a temporary Pin for generation context (Smart Regen failed/not compatible)
+            const tempPin: Pin = {
+                id: "temp-gen",
+                title: styleName || "New Creation", // Use style name if available even if not found
+                imageUrl: "",
+                author: "You",
+                prompt: prompt,
+                heightRatio: 1.0
+            };
+            setActivePin(tempPin);
+            setGenerationModalOpen(true);
+            return;
+        }
+
+        // 2. Check for Pin Deep Link (either prop or search param)
         const targetId = initialPinId || pid;
 
         if (!loading && targetId && pins.length > 0) {
@@ -54,7 +89,7 @@ export function MasonryFeed({ initialPinId }: MasonryFeedProps) {
                 setGenerationModalOpen(true);
             }
         }
-    }, [loading, pid, initialPinId, pins]);
+    }, [loading, pid, initialPinId, pins, searchParams]);
 
     // Initial load
     useEffect(() => {

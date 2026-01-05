@@ -36,6 +36,12 @@ import {
 import { TutorialStep } from "@/components/auth/tutorial-step";
 import { X, Trash2, MoreHorizontal } from "lucide-react";
 
+import { getUserGenerations } from "@/app/actions/gallery";
+import { PhotoDetailModal } from "@/components/archive/photo-detail-modal";
+import { ShareModal } from "@/components/share/share-modal";
+import { generateStyleDeepLink } from "@/lib/utils";
+import { ArchiveCard } from "@/components/archive/archive-card";
+
 interface ProfileDashboardProps {
     user: User;
     profile: any;
@@ -61,6 +67,8 @@ export function ProfileDashboard({ user, profile, stats }: ProfileDashboardProps
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [isDeleteOpen, setIsDeleteOpen] = useState(false);
     const [uploadStep, setUploadStep] = useState<'tutorial' | 'upload'>('tutorial');
+    // Version state to force avatar refresh
+    const [avatarVersion, setAvatarVersion] = useState(Date.now());
 
     const handleSignOut = async () => {
         setIsLoading(true);
@@ -94,7 +102,10 @@ export function ProfileDashboard({ user, profile, stats }: ProfileDashboardProps
                             <div className="w-32 h-32 md:w-40 md:h-40 bg-zinc-800 rounded-3xl border-4 border-[#09090b] shadow-xl overflow-hidden flex items-center justify-center">
                                 {/* Real Avatar */}
                                 <Avatar className="w-full h-full rounded-none">
-                                    <AvatarImage src={profile?.avatar_url || ""} className="object-cover" />
+                                    <AvatarImage
+                                        src={profile?.avatar_url ? `${profile.avatar_url}?v=${avatarVersion}` : ""}
+                                        className="object-cover"
+                                    />
                                     <AvatarFallback className="w-full h-full flex items-center justify-center bg-zinc-700/50 text-zinc-500 rounded-none">
                                         <Camera className="w-12 h-12 opacity-50" />
                                     </AvatarFallback>
@@ -155,6 +166,7 @@ export function ProfileDashboard({ user, profile, stats }: ProfileDashboardProps
                                     try {
                                         // Upload is handled by FaceUpload component internal server action
                                         router.refresh();
+                                        setAvatarVersion(Date.now()); // Force refresh image
                                         toast.success("Avatar updated!");
                                         setIsEditOpen(false);
                                     } catch (err: any) {
@@ -306,14 +318,20 @@ export function ProfileDashboard({ user, profile, stats }: ProfileDashboardProps
 }
 
 // Subcomponent for handling async fetching efficiently
-import { getUserGenerations } from "@/app/actions/gallery";
-import { PhotoDetailModal } from "@/components/archive/photo-detail-modal";
-import { ShareModal } from "@/components/share/share-modal";
 
 function GalleryGrid({ userEmail, userId }: { userEmail: string | undefined, userId: string }) {
     const [images, setImages] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    // Detail Modal State
+    const [detailModalOpen, setDetailModalOpen] = useState(false);
+    const [detailImage, setDetailImage] = useState<any | null>(null);
+
+    // Share Modal State (reuse logic)
+    const [shareModalOpen, setShareModalOpen] = useState(false);
+    const [shareGeneration, setShareGeneration] = useState<any | null>(null);
+    const [shareCustomUrl, setShareCustomUrl] = useState<string | undefined>(undefined);
 
     useEffect(() => {
         async function fetchImages() {
@@ -337,6 +355,49 @@ function GalleryGrid({ userEmail, userId }: { userEmail: string | undefined, use
 
         fetchImages();
     }, [userEmail, userId]);
+
+    const handleImageClick = (item: any) => {
+        setDetailImage(item);
+        setDetailModalOpen(true);
+    };
+
+    // ... existing code ...
+
+    const handleShareClick = (e: React.MouseEvent, item: any) => {
+        e.stopPropagation();
+        setShareGeneration({
+            id: item.id,
+            title: item.title,
+            imageUrl: item.url,
+            author: "You",
+            prompt: item.title, // Fallback
+            heightRatio: 1.0
+        });
+
+        // Generate deep link
+        const prompt = item.title; // Fallback prompt
+        const url = generateStyleDeepLink(prompt, item.title);
+        setShareCustomUrl(url);
+
+        setShareModalOpen(true);
+    };
+
+    const handleDetailShare = (url?: string) => {
+        if (detailImage) {
+            setDetailModalOpen(false);
+            setShareGeneration({
+                id: detailImage.id,
+                title: detailImage.title,
+                imageUrl: detailImage.url,
+                author: "You",
+                prompt: detailImage.title,
+                heightRatio: 1.0
+            });
+            // Use custom URL if provided, otherwise it will just use default logic
+            setShareCustomUrl(url);
+            setShareModalOpen(true);
+        }
+    };
 
     if (loading) {
         return <div className="text-zinc-500 text-sm">Loading gallery...</div>;
@@ -370,46 +431,7 @@ function GalleryGrid({ userEmail, userId }: { userEmail: string | undefined, use
         );
     }
 
-    return (
-    // Detail Modal State
-    const [detailModalOpen, setDetailModalOpen] = useState(false);
-    const [detailImage, setDetailImage] = useState<any | null>(null);
 
-    // Share Modal State (reuse logic)
-    const [shareModalOpen, setShareModalOpen] = useState(false);
-    const [shareGeneration, setShareGeneration] = useState<any | null>(null);
-
-    const handleImageClick = (item: any) => {
-        setDetailImage(item);
-        setDetailModalOpen(true);
-    };
-
-    const handleShareClick = (e: React.MouseEvent, item: any) => {
-        e.stopPropagation();
-        setShareGeneration({
-            id: item.id,
-            title: item.title,
-            imageUrl: item.url,
-            author: "You",
-            prompt: item.title, // Fallback
-            heightRatio: 1.0
-        });
-        setShareModalOpen(true);
-    };
-
-    const handleDetailShare = () => {
-        if (detailImage) {
-            setShareGeneration({
-                id: detailImage.id,
-                title: detailImage.title,
-                imageUrl: detailImage.url,
-                author: "You",
-                prompt: detailImage.title,
-                heightRatio: 1.0
-            });
-            setShareModalOpen(true);
-        }
-    };
 
     return (
         <>
@@ -421,35 +443,16 @@ function GalleryGrid({ userEmail, userId }: { userEmail: string | undefined, use
                 className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"
             >
                 {images.map((item) => (
-                    <div
-                        key={item.id}
-                        className="group relative aspect-square bg-white rounded-lg overflow-hidden border border-zinc-800 cursor-pointer"
-                        onClick={() => handleImageClick(item)}
-                    >
-                        <div className="absolute inset-0 bg-zinc-100 flex items-center justify-center p-0">
-                            <img
-                                src={item.url}
-                                alt={item.title}
-                                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                            />
-                        </div>
-                        {/* Overlay */}
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-200" />
-
-                        {/* Filename/Date Label on hover */}
-                        <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                            <p className="text-xs text-white truncate font-medium">{item.title}</p>
-                        </div>
-
-                        <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1.5">
-                            <div
-                                className="bg-zinc-900/80 backdrop-blur text-zinc-300 p-1.5 rounded hover:text-white hover:bg-black transition-colors"
-                                title="Share"
-                                onClick={(e) => handleShareClick(e, item)}
-                            >
-                                <Share2 className="w-4 h-4" />
-                            </div>
-                        </div>
+                    <div key={item.id} onClick={() => handleImageClick(item)}>
+                        <ArchiveCard
+                            generation={{
+                                id: item.id,
+                                title: item.title,
+                                imageUrl: item.url,
+                                prompt: item.title // Fallback
+                            }}
+                            onShare={(e) => handleShareClick(e, item)}
+                        />
                     </div>
                 ))}
             </motion.div>
@@ -464,8 +467,12 @@ function GalleryGrid({ userEmail, userId }: { userEmail: string | undefined, use
 
             <ShareModal
                 open={shareModalOpen}
-                onOpenChange={setShareModalOpen}
+                onOpenChange={(open) => {
+                    setShareModalOpen(open);
+                    if (!open) setShareCustomUrl(undefined);
+                }}
                 pin={shareGeneration || null}
+                url={shareCustomUrl}
             />
         </>
     );
