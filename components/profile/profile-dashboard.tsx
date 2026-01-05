@@ -27,6 +27,9 @@ import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
+import { TutorialStep } from "@/components/auth/tutorial-step";
+import { X } from "lucide-react";
+
 interface ProfileDashboardProps {
     user: User;
     profile: any;
@@ -50,6 +53,7 @@ export function ProfileDashboard({ user, profile, stats }: ProfileDashboardProps
     const supabase = createClient();
     const [isLoading, setIsLoading] = useState(false);
     const [isEditOpen, setIsEditOpen] = useState(false);
+    const [uploadStep, setUploadStep] = useState<'tutorial' | 'upload'>('tutorial');
 
     const handleSignOut = async () => {
         setIsLoading(true);
@@ -106,26 +110,56 @@ export function ProfileDashboard({ user, profile, stats }: ProfileDashboardProps
                 </div>
 
                 {/* Modal for Face Upload */}
-                <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-                    <DialogContent hideClose className="sm:max-w-[900px] p-0 overflow-hidden bg-transparent border-none shadow-none text-left">
+                <Dialog
+                    open={isEditOpen}
+                    onOpenChange={(open) => {
+                        setIsEditOpen(open);
+                        // Reset to tutorial when closed
+                        if (!open) {
+                            setTimeout(() => setUploadStep('tutorial'), 300);
+                        }
+                    }}
+                >
+                    <DialogContent hideClose className={cn(
+                        "p-0 overflow-hidden bg-transparent border-none shadow-none text-left transition-all duration-300",
+                        // Adjust width based on step if needed, Tutorial matches Upload roughly
+                        "sm:max-w-[900px]"
+                    )}>
                         <DialogTitle className="sr-only">Update Profile Photo</DialogTitle>
-                        <FaceUpload
-                            onUpload={async () => {
-                                setIsLoading(true);
-                                try {
-                                    // Upload is handled by FaceUpload component internal server action
-                                    router.refresh();
-                                    toast.success("Avatar updated!");
-                                    setIsEditOpen(false);
-                                } catch (err: any) {
-                                    toast.error("Failed to refresh profile");
-                                } finally {
-                                    setIsLoading(false);
-                                }
-                            }}
-                            isLoading={isLoading}
-                            onClose={() => setIsEditOpen(false)}
-                        />
+
+                        {/* Custom Close Button */}
+                        <button
+                            onClick={() => setIsEditOpen(false)}
+                            className="absolute top-6 right-6 z-50 text-zinc-500 hover:text-white transition-colors duration-200 outline-none focus:outline-none bg-black/50 p-2 rounded-full backdrop-blur-md"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
+
+                        {uploadStep === 'tutorial' && (
+                            <div className="w-full h-full min-h-[500px]">
+                                <TutorialStep onComplete={() => setUploadStep('upload')} />
+                            </div>
+                        )}
+
+                        {uploadStep === 'upload' && (
+                            <FaceUpload
+                                onUpload={async () => {
+                                    setIsLoading(true);
+                                    try {
+                                        // Upload is handled by FaceUpload component internal server action
+                                        router.refresh();
+                                        toast.success("Avatar updated!");
+                                        setIsEditOpen(false);
+                                    } catch (err: any) {
+                                        toast.error("Failed to refresh profile");
+                                    } finally {
+                                        setIsLoading(false);
+                                    }
+                                }}
+                                isLoading={isLoading}
+                                onClose={() => setIsEditOpen(false)}
+                            />
+                        )}
                     </DialogContent>
                 </Dialog>
 
