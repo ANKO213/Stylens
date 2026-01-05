@@ -37,15 +37,39 @@ export function LoginForm() {
         const formData = new FormData(event.currentTarget);
         const email = formData.get("email") as string;
         const password = formData.get("password") as string;
-        // const username = formData.get("username") as string; // TODO: Handle username storage if needed
+        const username = formData.get("username") as string;
 
         try {
             if (isSignUp) {
-                const { error } = await supabase.auth.signUp({
+                const { error, data } = await supabase.auth.signUp({
                     email,
                     password,
+                    options: {
+                        data: {
+                            username,
+                            email,
+                        },
+                    },
                 });
                 if (error) throw error;
+
+                // Explicitly sync to profiles table if user is created
+                if (data.user) {
+                    // Try to update profiles table - tolerates if columns don't exist or RLS blocks
+                    const { error: profileError } = await supabase
+                        .from('profiles')
+                        .update({
+                            username: username,
+                            email: email // redundancies but requested by user
+                        })
+                        .eq('id', data.user.id);
+
+                    if (profileError) {
+                        console.error("Profile sync error:", profileError);
+                        // Don't block flow, just log
+                    }
+                }
+
                 toast.success("Check your email for the confirmation link!");
             } else {
                 const { error } = await supabase.auth.signInWithPassword({
@@ -97,6 +121,7 @@ export function LoginForm() {
                                 name="username"
                                 type="text"
                                 placeholder="Username"
+                                required
                                 className="w-full h-12 pl-4 pr-4 bg-[#1C1C1E] text-white text-sm placeholder:text-white/20 rounded-2xl border border-white/5 focus:border-white/20 focus:ring-0 outline-none transition-all"
                             />
                         </div>
