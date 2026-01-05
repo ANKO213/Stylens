@@ -16,6 +16,8 @@ import { createClient } from "@/utils/supabase/client";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 
+import { TutorialStep } from "@/components/auth/tutorial-step";
+
 interface AuthModalProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -25,13 +27,27 @@ interface AuthModalProps {
 export function AuthModal({ open, onOpenChange, onComplete }: AuthModalProps) {
     const { user, avatarUrl, refreshProfile } = useUserProfile();
     const [loading, setLoading] = useState(false);
+    const [tutorialSeen, setTutorialSeen] = useState(false);
     const supabase = createClient();
 
     // Determine Step
     // 1. No User -> Auth
-    // 2. User but No Avatar -> Upload
+    // 2. User but No Avatar -> Tutorial (if not seen) -> Upload
     // 3. Both -> Complete/Close
-    const step = !user ? "auth" : (!avatarUrl ? "upload" : "complete");
+
+    // Logic: 
+    // If not user: 'auth'
+    // If user and no avatar:
+    // if not tutorialSeen: 'tutorial'
+    // else: 'upload'
+    // If user and avatar: 'complete'
+
+    let step = "complete";
+    if (!user) {
+        step = "auth";
+    } else if (!avatarUrl) {
+        step = tutorialSeen ? "upload" : "tutorial";
+    }
 
     // Effect: Handle Completion
     useEffect(() => {
@@ -86,6 +102,13 @@ export function AuthModal({ open, onOpenChange, onComplete }: AuthModalProps) {
                 {step === "auth" && (
                     <div className="w-full">
                         <LoginForm />
+                    </div>
+                )}
+
+                {/* TUTORIAL STEP */}
+                {step === "tutorial" && (
+                    <div className="w-full h-full min-h-[500px]">
+                        <TutorialStep onComplete={() => setTutorialSeen(true)} />
                     </div>
                 )}
 
