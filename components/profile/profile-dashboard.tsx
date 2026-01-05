@@ -27,8 +27,14 @@ import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { TutorialStep } from "@/components/auth/tutorial-step";
-import { X, Trash2 } from "lucide-react";
+import { X, Trash2, MoreHorizontal } from "lucide-react";
 
 interface ProfileDashboardProps {
     user: User;
@@ -214,28 +220,29 @@ export function ProfileDashboard({ user, profile, stats }: ProfileDashboardProps
                         </div>
 
                         <div className="ml-auto pb-3 flex items-center gap-4">
-                            {/* Delete Account Button */}
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setIsDeleteOpen(true)}
-                                disabled={isLoading}
-                                className="text-red-500 hover:text-red-400 hover:bg-red-500/10"
-                            >
-                                <Trash2 className="w-4 h-4 mr-2" />
-                                Delete Account
-                            </Button>
-
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={handleSignOut}
-                                disabled={isLoading}
-                                className="text-zinc-500 hover:text-white hover:bg-zinc-800/50"
-                            >
-                                <LogOut className="w-4 h-4 mr-2" />
-                                Log out
-                            </Button>
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="text-zinc-500 hover:text-white hover:bg-zinc-800/50 rounded-full">
+                                        <MoreHorizontal className="w-5 h-5" />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-48 bg-[#121212] border-zinc-800">
+                                    <DropdownMenuItem
+                                        onClick={() => setIsDeleteOpen(true)}
+                                        className="text-red-500 focus:text-red-400 focus:bg-red-500/10 cursor-pointer"
+                                    >
+                                        <Trash2 className="w-4 h-4 mr-2" />
+                                        Delete Account
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                        onClick={handleSignOut}
+                                        className="text-zinc-400 focus:text-white focus:bg-zinc-800 cursor-pointer"
+                                    >
+                                        <LogOut className="w-4 h-4 mr-2" />
+                                        Log out
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
                         </div>
                     </div>
                 </div>
