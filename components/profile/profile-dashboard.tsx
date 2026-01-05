@@ -307,6 +307,8 @@ export function ProfileDashboard({ user, profile, stats }: ProfileDashboardProps
 
 // Subcomponent for handling async fetching efficiently
 import { getUserGenerations } from "@/app/actions/gallery";
+import { PhotoDetailModal } from "@/components/archive/photo-detail-modal";
+import { ShareModal } from "@/components/share/share-modal";
 
 function GalleryGrid({ userEmail, userId }: { userEmail: string | undefined, userId: string }) {
     const [images, setImages] = useState<any[]>([]);
@@ -369,38 +371,103 @@ function GalleryGrid({ userEmail, userId }: { userEmail: string | undefined, use
     }
 
     return (
-        <motion.div
-            layout
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4 }}
-            className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"
-        >
-            {images.map((item) => (
-                <div key={item.id} className="group relative aspect-square bg-white rounded-lg overflow-hidden border border-zinc-800 cursor-pointer">
-                    <div className="absolute inset-0 bg-zinc-100 flex items-center justify-center p-0">
-                        <img
-                            src={item.url}
-                            alt={item.title}
-                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                        />
-                    </div>
-                    {/* Overlay */}
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-200" />
+    // Detail Modal State
+    const [detailModalOpen, setDetailModalOpen] = useState(false);
+    const [detailImage, setDetailImage] = useState<any | null>(null);
 
-                    {/* Filename/Date Label on hover */}
-                    <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                        <p className="text-xs text-white truncate font-medium">{item.title}</p>
-                    </div>
+    // Share Modal State (reuse logic)
+    const [shareModalOpen, setShareModalOpen] = useState(false);
+    const [shareGeneration, setShareGeneration] = useState<any | null>(null);
 
-                    <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1.5">
-                        <div className="bg-zinc-900/80 backdrop-blur text-zinc-300 p-1.5 rounded hover:text-white hover:bg-black transition-colors" title="Download" onClick={() => window.open(item.url, '_blank')}>
-                            <Share2 className="w-4 h-4" />
+    const handleImageClick = (item: any) => {
+        setDetailImage(item);
+        setDetailModalOpen(true);
+    };
+
+    const handleShareClick = (e: React.MouseEvent, item: any) => {
+        e.stopPropagation();
+        setShareGeneration({
+            id: item.id,
+            title: item.title,
+            imageUrl: item.url,
+            author: "You",
+            prompt: item.title, // Fallback
+            heightRatio: 1.0
+        });
+        setShareModalOpen(true);
+    };
+
+    const handleDetailShare = () => {
+        if (detailImage) {
+            setShareGeneration({
+                id: detailImage.id,
+                title: detailImage.title,
+                imageUrl: detailImage.url,
+                author: "You",
+                prompt: detailImage.title,
+                heightRatio: 1.0
+            });
+            setShareModalOpen(true);
+        }
+    };
+
+    return (
+        <>
+            <motion.div
+                layout
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4 }}
+                className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"
+            >
+                {images.map((item) => (
+                    <div
+                        key={item.id}
+                        className="group relative aspect-square bg-white rounded-lg overflow-hidden border border-zinc-800 cursor-pointer"
+                        onClick={() => handleImageClick(item)}
+                    >
+                        <div className="absolute inset-0 bg-zinc-100 flex items-center justify-center p-0">
+                            <img
+                                src={item.url}
+                                alt={item.title}
+                                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                            />
+                        </div>
+                        {/* Overlay */}
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-200" />
+
+                        {/* Filename/Date Label on hover */}
+                        <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                            <p className="text-xs text-white truncate font-medium">{item.title}</p>
+                        </div>
+
+                        <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1.5">
+                            <div
+                                className="bg-zinc-900/80 backdrop-blur text-zinc-300 p-1.5 rounded hover:text-white hover:bg-black transition-colors"
+                                title="Share"
+                                onClick={(e) => handleShareClick(e, item)}
+                            >
+                                <Share2 className="w-4 h-4" />
+                            </div>
                         </div>
                     </div>
-                </div>
-            ))}
-        </motion.div>
+                ))}
+            </motion.div>
+
+            {/* Modals */}
+            <PhotoDetailModal
+                open={detailModalOpen}
+                onOpenChange={setDetailModalOpen}
+                image={detailImage}
+                onShare={handleDetailShare}
+            />
+
+            <ShareModal
+                open={shareModalOpen}
+                onOpenChange={setShareModalOpen}
+                pin={shareGeneration || null}
+            />
+        </>
     );
 }
 

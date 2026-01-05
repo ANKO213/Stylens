@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { syncUserGenerations } from "@/app/actions/sync-archive";
 import { toast } from "sonner";
 import { getUserGenerations } from "@/app/actions/gallery";
+import { PhotoDetailModal } from "./photo-detail-modal";
 
 interface Generation {
     id: string;
@@ -124,17 +125,48 @@ export function ArchiveFeed({ userEmail, userId }: ArchiveFeedProps) {
         );
     }
 
+
+    // New state for Detail Modal
+    const [detailModalOpen, setDetailModalOpen] = useState(false);
+    const [detailImage, setDetailImage] = useState<Generation | null>(null);
+
+    const handleCardClick = (generation: Generation) => {
+        setDetailImage(generation);
+        setDetailModalOpen(true);
+    };
+
+    const handleDetailShare = () => {
+        if (detailImage) {
+            setDetailModalOpen(false); // Close detail to open share? Or keep both?
+            // Usually modals stack, but let's just switch for now or open share on top.
+            // ShareModal uses Dialog, which handles stacking well usually. 
+            // Let's open share and keep detail open? 
+            // Actually, ShareModal might cover DetailModal.
+            setShareGeneration(detailImage);
+            setShareModalOpen(true);
+        }
+    };
+
     return (
         <div className="max-w-[1800px] mx-auto px-4 py-6">
             <div className="columns-1 md:columns-3 gap-4 space-y-4">
                 {generations.map((generation) => (
-                    <ArchiveCard
-                        key={generation.id}
-                        generation={generation}
-                        onShare={(e) => handleShareClick(e, generation)}
-                    />
+                    <div key={generation.id} onClick={() => handleCardClick(generation)}>
+                        <ArchiveCard
+                            generation={generation}
+                            onShare={(e) => handleShareClick(e, generation)}
+                        />
+                    </div>
                 ))}
             </div>
+
+            {/* Photo Detail Modal */}
+            <PhotoDetailModal
+                open={detailModalOpen}
+                onOpenChange={setDetailModalOpen}
+                image={detailImage}
+                onShare={handleDetailShare}
+            />
 
             {/* Share Modal */}
             <ShareModal
@@ -152,3 +184,5 @@ export function ArchiveFeed({ userEmail, userId }: ArchiveFeedProps) {
         </div>
     );
 }
+
+
