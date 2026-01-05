@@ -54,19 +54,12 @@ export function LoginForm() {
                 if (error) throw error;
 
                 // Explicitly sync to profiles table if user is created
+                // Explicitly sync to profiles table using Server Action
                 if (data.user) {
-                    // Try to update profiles table - tolerates if columns don't exist or RLS blocks
-                    const { error: profileError } = await supabase
-                        .from('profiles')
-                        .update({
-                            username: username,
-                            email: email // redundancies but requested by user
-                        })
-                        .eq('id', data.user.id);
-
-                    if (profileError) {
-                        console.error("Profile sync error:", profileError);
-                        // Don't block flow, just log
+                    const { syncUserProfile } = await import("@/app/actions/auth-profile");
+                    const result = await syncUserProfile(data.user.id, username, email);
+                    if (!result.success) {
+                        console.warn("Profile sync warning:", result.error);
                     }
                 }
 
