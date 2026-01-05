@@ -260,14 +260,10 @@ export function FaceUpload({ onUpload, isLoading = false, onClose }: FaceUploadP
                 </div>
 
                 {/* Grid Layout for Slots */}
-                <div className="flex-1 grid grid-cols-2 grid-rows-2 gap-4 min-h-0">
+                <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 min-h-0">
 
-                    {/* Main Slot (Full Height on Left in Grid? No, 2 cols.) */}
-                    {/* Let's do: Top row = Side1, Side2. Bottom row = Main (Wide)? Or Main Left, Side Right split? */}
-                    {/* Layout: Main takes left half, Sides take right col stacked? */}
-
-                    {/* Let's try Main = Big, Sides = Small row below */}
-                    <div className="col-span-2 row-span-1 md:row-span-2 md:col-span-1 relative">
+                    {/* Main Slot - Takes full height of left column */}
+                    <div className="relative w-full h-full min-h-[300px] md:min-h-0">
                         <div
                             onClick={() => triggerSelect('main')}
                             className={cn(
@@ -294,52 +290,56 @@ export function FaceUpload({ onUpload, isLoading = false, onClose }: FaceUploadP
                         </div>
                     </div>
 
-                    {/* Side Slots Column */}
-                    <div className="col-span-2 md:col-span-1 grid grid-cols-2 md:grid-cols-1 gap-4">
+                    {/* Side Slots Column - Takes full height of right column, split vertically */}
+                    <div className="flex flex-col gap-4 h-full w-full">
                         {/* Side 1 */}
-                        <div
-                            onClick={() => triggerSelect('side1')}
-                            className={cn(
-                                "relative w-full h-full rounded-2xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all overflow-hidden group min-h-[140px]",
-                                slots.side1.preview ? "border-transparent bg-zinc-900" : "border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900/30"
-                            )}
-                        >
-                            {slots.side1.preview ? (
-                                <>
-                                    <img src={slots.side1.preview} className="absolute inset-0 w-full h-full object-cover" />
-                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                        <p className="text-white font-medium text-xs">Change Side</p>
-                                    </div>
-                                </>
-                            ) : (
-                                <>
-                                    <Camera className="w-5 h-5 text-zinc-600 mb-2 group-hover:text-zinc-400" />
-                                    <p className="text-xs font-medium text-zinc-400">Side Profile (L)</p>
-                                </>
-                            )}
+                        <div className="flex-1 relative w-full h-full min-h-[140px] md:min-h-0">
+                            <div
+                                onClick={() => triggerSelect('side1')}
+                                className={cn(
+                                    "relative w-full h-full rounded-2xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all overflow-hidden group",
+                                    slots.side1.preview ? "border-transparent bg-zinc-900" : "border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900/30"
+                                )}
+                            >
+                                {slots.side1.preview ? (
+                                    <>
+                                        <img src={slots.side1.preview} className="absolute inset-0 w-full h-full object-cover" />
+                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                            <p className="text-white font-medium text-xs">Change Side</p>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Camera className="w-5 h-5 text-zinc-600 mb-2 group-hover:text-zinc-400" />
+                                        <p className="text-xs font-medium text-zinc-400">Side Profile (L)</p>
+                                    </>
+                                )}
+                            </div>
                         </div>
 
                         {/* Side 2 */}
-                        <div
-                            onClick={() => triggerSelect('side2')}
-                            className={cn(
-                                "relative w-full h-full rounded-2xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all overflow-hidden group min-h-[140px]",
-                                slots.side2.preview ? "border-transparent bg-zinc-900" : "border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900/30"
-                            )}
-                        >
-                            {slots.side2.preview ? (
-                                <>
-                                    <img src={slots.side2.preview} className="absolute inset-0 w-full h-full object-cover" />
-                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                        <p className="text-white font-medium text-xs">Change Side</p>
-                                    </div>
-                                </>
-                            ) : (
-                                <>
-                                    <Camera className="w-5 h-5 text-zinc-600 mb-2 group-hover:text-zinc-400" />
-                                    <p className="text-xs font-medium text-zinc-400">Side Profile (R)</p>
-                                </>
-                            )}
+                        <div className="flex-1 relative w-full h-full min-h-[140px] md:min-h-0">
+                            <div
+                                onClick={() => triggerSelect('side2')}
+                                className={cn(
+                                    "relative w-full h-full rounded-2xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all overflow-hidden group",
+                                    slots.side2.preview ? "border-transparent bg-zinc-900" : "border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900/30"
+                                )}
+                            >
+                                {slots.side2.preview ? (
+                                    <>
+                                        <img src={slots.side2.preview} className="absolute inset-0 w-full h-full object-cover" />
+                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                            <p className="text-white font-medium text-xs">Change Side</p>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Camera className="w-5 h-5 text-zinc-600 mb-2 group-hover:text-zinc-400" />
+                                        <p className="text-xs font-medium text-zinc-400">Side Profile (R)</p>
+                                    </>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
