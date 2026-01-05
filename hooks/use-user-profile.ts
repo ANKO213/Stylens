@@ -8,6 +8,7 @@ export function useUserProfile() {
     const [user, setUser] = useState<User | null>(null);
     const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
     const [credits, setCredits] = useState<number | null>(null);
+    const [username, setUsername] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
 
     const supabase = createClient();
@@ -20,15 +21,17 @@ export function useUserProfile() {
         if (user) {
             const { data } = await supabase
                 .from("profiles")
-                .select("avatar_url, credits")
+                .select("avatar_url, credits, username")
                 .eq("id", user.id)
                 .single();
 
             setAvatarUrl(data?.avatar_url || null);
             setCredits(data?.credits || 0);
+            setUsername(data?.username || null);
         } else {
             setAvatarUrl(null);
             setCredits(null);
+            setUsername(null);
         }
         setLoading(false);
     };
@@ -45,5 +48,5 @@ export function useUserProfile() {
         };
     }, []);
 
-    return { user, avatarUrl, credits, loading, refreshProfile };
+    return { user, avatarUrl, credits, username, loading, refreshProfile };
 }

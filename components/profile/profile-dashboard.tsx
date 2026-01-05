@@ -131,16 +131,21 @@ export function ProfileDashboard({ user, profile, stats }: ProfileDashboardProps
 
                 {/* User Info Section */}
                 <div className="mt-20 px-8 md:px-12 flex flex-col md:flex-row md:items-start md:justify-between gap-6">
-                    <div className="flex-1 space-y-2">
-                        {/* Email / Name */}
+                    <div className="flex-1 space-y-1">
+                        {/* Name */}
                         <div className="flex items-center gap-3 group">
-                            <h1 className="text-3xl md:text-4xl font-bold text-white tracking-tight">
-                                {user.email}
+                            <h1 className="text-3xl md:text-4xl font-bold text-white tracking-tight capitalize">
+                                {profile?.username || "Unnamed User"}
                             </h1>
                         </div>
 
-                        {/* Joined Date */}
+                        {/* Email */}
                         <div className="text-zinc-500 font-medium text-sm">
+                            {user.email}
+                        </div>
+
+                        {/* Joined Date */}
+                        <div className="text-zinc-600 text-xs mt-1">
                             Joined {new Date(stats.joinedAt).toLocaleDateString("en-US", { month: 'long', year: 'numeric' })}
                         </div>
                     </div>
