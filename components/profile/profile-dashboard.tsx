@@ -228,18 +228,21 @@ export function ProfileDashboard({ user, profile, stats }: ProfileDashboardProps
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" className="w-48 bg-[#121212] border-zinc-800">
                                     <DropdownMenuItem
-                                        onClick={() => setIsDeleteOpen(true)}
-                                        className="text-red-500 focus:text-red-400 focus:bg-red-500/10 cursor-pointer"
-                                    >
-                                        <Trash2 className="w-4 h-4 mr-2" />
-                                        Delete Account
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
                                         onClick={handleSignOut}
                                         className="text-zinc-400 focus:text-white focus:bg-zinc-800 cursor-pointer"
                                     >
                                         <LogOut className="w-4 h-4 mr-2" />
                                         Log out
+                                    </DropdownMenuItem>
+
+                                    <div className="h-px bg-zinc-800 my-1" />
+
+                                    <DropdownMenuItem
+                                        onClick={() => setIsDeleteOpen(true)}
+                                        className="text-red-500 focus:text-red-400 focus:bg-red-500/10 cursor-pointer"
+                                    >
+                                        <Trash2 className="w-4 h-4 mr-2" />
+                                        Delete Account
                                     </DropdownMenuItem>
                                 </DropdownMenuContent>
                             </DropdownMenu>
