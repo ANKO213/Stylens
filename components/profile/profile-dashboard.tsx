@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils";
 import Link from "next/link";
 
 import { TutorialStep } from "@/components/auth/tutorial-step";
-import { X } from "lucide-react";
+import { X, Trash2 } from "lucide-react";
 
 interface ProfileDashboardProps {
     user: User;
@@ -53,6 +53,7 @@ export function ProfileDashboard({ user, profile, stats }: ProfileDashboardProps
     const supabase = createClient();
     const [isLoading, setIsLoading] = useState(false);
     const [isEditOpen, setIsEditOpen] = useState(false);
+    const [isDeleteOpen, setIsDeleteOpen] = useState(false);
     const [uploadStep, setUploadStep] = useState<'tutorial' | 'upload'>('tutorial');
 
     const handleSignOut = async () => {
@@ -212,7 +213,19 @@ export function ProfileDashboard({ user, profile, stats }: ProfileDashboardProps
                             Archive
                         </div>
 
-                        <div className="ml-auto pb-3">
+                        <div className="ml-auto pb-3 flex items-center gap-4">
+                            {/* Delete Account Button */}
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setIsDeleteOpen(true)}
+                                disabled={isLoading}
+                                className="text-red-500 hover:text-red-400 hover:bg-red-500/10"
+                            >
+                                <Trash2 className="w-4 h-4 mr-2" />
+                                Delete Account
+                            </Button>
+
                             <Button
                                 variant="ghost"
                                 size="sm"
@@ -226,6 +239,51 @@ export function ProfileDashboard({ user, profile, stats }: ProfileDashboardProps
                         </div>
                     </div>
                 </div>
+
+                {/* Delete Confirmation Dialog */}
+                <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+                    <DialogContent className="bg-[#121212] border border-zinc-800 text-white sm:max-w-[400px]">
+                        <DialogTitle className="text-xl font-bold">Delete Account?</DialogTitle>
+                        <div className="py-4">
+                            <p className="text-zinc-400 text-sm">
+                                This action cannot be undone. This will permanently delete your account, generated images, and uploaded styles.
+                            </p>
+                        </div>
+                        <div className="flex justify-end gap-3">
+                            <Button
+                                variant="outline"
+                                onClick={() => setIsDeleteOpen(false)}
+                                className="border-zinc-700 bg-transparent text-white hover:bg-zinc-800"
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                variant="destructive"
+                                onClick={async () => {
+                                    setIsLoading(true);
+                                    try {
+                                        const { deleteAccount } = await import("@/app/actions/delete-account");
+                                        const result = await deleteAccount();
+                                        if (result.success) {
+                                            toast.success("Account deleted successfully");
+                                            window.location.href = "/";
+                                        } else {
+                                            toast.error(result.error || "Failed to delete account");
+                                        }
+                                    } catch (e) {
+                                        toast.error("An error occurred");
+                                    } finally {
+                                        setIsLoading(false);
+                                        setIsDeleteOpen(false);
+                                    }
+                                }}
+                                className="bg-red-600 hover:bg-red-700 text-white"
+                            >
+                                {isLoading ? "Deleting..." : "Yes, Delete Everything"}
+                            </Button>
+                        </div>
+                    </DialogContent>
+                </Dialog>
 
                 {/* Gallery Grid */}
                 <div className="mt-8 px-4 md:px-8">
