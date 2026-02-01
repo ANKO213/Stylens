@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { FaceCaptureModule, FrameStats, TargetZone, Pose } from "@/lib/face-capture-module";
 import { updateSessionStatus, uploadCaptureImage } from "@/app/actions/capture-session";
-import { Loader2, Camera, CheckCircle, ArrowRight, ArrowLeft, Sun } from "lucide-react";
+import { Loader2, Camera, CheckCircle, ArrowRight, ArrowLeft, RefreshCcw } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +18,8 @@ const ZONES: { id: TargetZone; label: string; angle: number }[] = [
     { id: 'right', label: 'Right Side', angle: -30 },
 ];
 
+type UploadStatus = 'pending' | 'uploading' | 'done' | 'error';
+
 export function SmartCamera({ sessionId }: SmartCameraProps) {
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -28,18 +30,26 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
     const [finished, setFinished] = useState(false);
 
     // UI State
-    const [isBursting, setIsBursting] = useState(false);
-    const [isUploading, setIsUploading] = useState(false); // New state for full screen loader
+    const [isEnhancing, setIsEnhancing] = useState(false); // "Bursting"
+    const [isFinishing, setIsFinishing] = useState(false); // Final Loader
     const [initializationError, setInitializationError] = useState<string | null>(null);
+    const [lastError, setLastError] = useState<string | null>(null); // Explicit error feedback
+
+    // Upload State
+    const [uploadState, setUploadState] = useState<Record<string, UploadStatus>>({});
 
     // UX State
     const [currentZone, setCurrentZone] = useState<TargetZone | null>(null);
-    const [distanceProgress, setDistanceProgress] = useState(0); // 0-1 (For Distance Phase)
-    const [stability, setStability] = useState(0); // 0-100 (For Capture Phase)
+    const [distanceProgress, setDistanceProgress] = useState(0);
+    const [stability, setStability] = useState(0);
     const [capturedZones, setCapturedZones] = useState<Set<TargetZone>>(new Set());
-    const [captures, setCaptures] = useState<Map<TargetZone, Blob>>(new Map());
 
-    // Refs for safe callback access
+    // Data (Ref to avoid re-renders during rapid logic)
+    const capturesRef = useRef<Map<TargetZone, Blob>>(new Map());
+    const uploadedKeysRef = useRef<Record<string, string>>({});
+    const uploadPromisesRef = useRef<Record<string, Promise<void>>>({});
+
+    // Logic Refs
     const capturedZonesRef = useRef<Set<TargetZone>>(new Set());
     const isCapturingRef = useRef(false);
     const onFrameRef = useRef<((stats: FrameStats) => void) | undefined>(undefined);
@@ -56,10 +66,7 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
 
                 const startStream = async () => {
                     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                        throw new Error(
-                            "Camera access is not supported. Use HTTPS or localhost." +
-                            (window.location.protocol === 'http:' ? " (Current: HTTP)" : "")
-                        );
+                        throw new Error("Camera access not supported. Use HTTPS.");
                     }
 
                     const stream = await navigator.mediaDevices.getUserMedia({
@@ -82,7 +89,6 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
 
                 try {
                     const dims = await startStream();
-
                     if (active && canvasRef.current) {
                         canvasRef.current.width = dims.w;
                         canvasRef.current.height = dims.h;
@@ -116,28 +122,29 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
     // Frame Callback
     useEffect(() => {
         onFrameRef.current = (stats: FrameStats) => {
+            if (isEnhancing) return; // Don't update during burst (stats are frozen anyway)
+
             setStatus(stats.message);
             setQualityScore(stats.score);
             setCurrentZone(stats.currentZone);
             setStability(stats.progress);
             setDistanceProgress(stats.distanceProgress);
-            setIsBursting(!!stats.isBursting); // Sync burst state from module
 
             // Auto-Capture Logic
             if (stats.isStable && stats.currentZone && stats.score > 0.8) {
-                if (!capturedZonesRef.current.has(stats.currentZone) && !isCapturingRef.current && !isUploading) {
+                if (!capturedZonesRef.current.has(stats.currentZone) && !isCapturingRef.current && !isFinishing) {
                     autoCaptureReal(stats.currentZone, stats.scaleFactor);
                 }
             }
         };
     });
 
-    // AUTO-FINISH TRIGGER
+    // AUTO-FINISH
     useEffect(() => {
-        if (capturedZones.size === 3 && !finished && !isUploading) {
+        if (capturedZones.size === 3 && !finished && !isFinishing) {
             handleFinish();
         }
-    }, [capturedZones, finished, isUploading]);
+    }, [capturedZones, finished, isFinishing]);
 
     const getPrimaryState = () => {
         if (!capturedZones.has('center')) return 'center';
@@ -148,14 +155,33 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
 
     const guideState = getPrimaryState();
 
+    const handleBackgroundUpload = async (zone: TargetZone, blob: Blob) => {
+        setUploadState(prev => ({ ...prev, [zone]: 'uploading' }));
+
+        try {
+            const formData = new FormData();
+            formData.append('file', blob, `${zone}.png`);
+
+            const res = await uploadCaptureImage(sessionId, zone, formData);
+            if (res && res.key) {
+                uploadedKeysRef.current[zone] = res.key;
+                setUploadState(prev => ({ ...prev, [zone]: 'done' }));
+            } else {
+                throw new Error("No key returned");
+            }
+        } catch (e) {
+            console.error(`Upload failed for ${zone}`, e);
+            setUploadState(prev => ({ ...prev, [zone]: 'error' }));
+            // Don't toast here to avoid spam, error will be shown in UI dot
+        }
+    };
+
     const autoCaptureReal = async (zone: TargetZone, currentScale: number) => {
-        // Prevent double capture or capturing while bursting
         if (capturedZonesRef.current.has(zone) || isCapturingRef.current) return;
 
-        // Lock UI
-        isCapturingRef.current = true; // Block triggers
-
-        const toastId = toast.loading("Enhancing photo...");
+        isCapturingRef.current = true;
+        setIsEnhancing(true);
+        setLastError(null); // Clear previous errors
 
         // ZOOM LOCK LOGIC
         if (zone === 'center' && moduleRef.current) {
@@ -164,60 +190,77 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
 
         if (moduleRef.current) {
             try {
-                // Use BURST Capture
+                // BURST CAPTURE
                 const blob = await moduleRef.current.takeBurstPhoto();
 
                 if (blob) {
-                    setCaptures(prev => new Map(prev).set(zone, blob));
+                    capturesRef.current.set(zone, blob);
 
-                    // Mark as captured only on success
+                    // Mark Captured
                     capturedZonesRef.current.add(zone);
                     setCapturedZones(new Set(capturedZonesRef.current));
 
-                    toast.success(`Captured ${zone.toUpperCase()}!`, { id: toastId });
+                    toast.success(`Captured ${zone.toUpperCase()}!`, { id: 'capture-toast' });
+
+                    // START UPLOAD IN BACKGROUND
+                    const uploadPromise = handleBackgroundUpload(zone, blob);
+                    uploadPromisesRef.current[zone] = uploadPromise;
                 }
             } catch (e: any) {
                 console.error("Capture failed", e);
-                // Handle specific errors (Low Light)
+                setLastError(e.message || "Capture Failed");
+
                 if (e.message.includes("Low light")) {
-                    toast.error("Too Dark! Increase brightness.", { id: toastId });
+                    toast.error("Too Dark! Increase brightness.", { id: 'capture-toast' });
                 } else {
-                    toast.error("Capture failed, try again.", { id: toastId });
+                    toast.error("Turn failed. Try again.", { id: 'capture-toast' });
                 }
             }
         }
 
-        // Always unlock
+        setIsEnhancing(false);
         isCapturingRef.current = false;
     };
 
     const handleFinish = async () => {
-        if (captures.size === 0) return;
-        if (isUploading) return;
+        if (capturesRef.current.size === 0) return;
+        if (isFinishing) return;
 
-        setIsUploading(true);
-        isCapturingRef.current = true; // Lock everything
+        setIsFinishing(true);
+        setLastError(null);
 
         try {
-            const uploadedKeys: Record<string, string> = {};
+            // 1. Retry/Start missing uploads
+            const missingUploads: Promise<void>[] = [];
 
-            // Upload using Server Action
-            for (const [zone, blob] of Array.from(captures.entries())) {
-                const fd = new FormData();
-                fd.append('file', blob, `${zone}.png`);
-
-                try {
-                    const res = await uploadCaptureImage(sessionId, zone, fd);
-                    if (res && res.key) {
-                        uploadedKeys[zone] = res.key;
-                    }
-                } catch (e) {
-                    console.error(`Upload error for ${zone}`, e);
-                    throw new Error(`Failed to upload ${zone} image`);
+            for (const [zone, blob] of Array.from(capturesRef.current.entries())) {
+                const status = uploadState[zone];
+                // If not done and not currently uploading, retry
+                if (status !== 'done' && status !== 'uploading') {
+                    const p = handleBackgroundUpload(zone, blob);
+                    uploadPromisesRef.current[zone] = p;
+                    missingUploads.push(p);
                 }
             }
 
-            const mainKey = uploadedKeys['center'] || Object.values(uploadedKeys)[0];
+            // 2. Wait for all active uploads
+            // We wait for existing promises + new ones
+            const allPromises = Object.values(uploadPromisesRef.current);
+            if (allPromises.length > 0) {
+                await Promise.all(allPromises);
+            }
+
+            // 3. Verify all uploaded
+            const keys = uploadedKeysRef.current;
+            const allZones = Array.from(capturesRef.current.keys());
+            const missingKeys = allZones.filter(z => !keys[z]);
+
+            if (missingKeys.length > 0) {
+                throw new Error(`Failed to upload: ${missingKeys.join(', ')}. Please retry.`);
+            }
+
+            // 4. Finalize
+            const mainKey = keys['center'] || Object.values(keys)[0];
             await updateSessionStatus(sessionId, 'captured', mainKey);
 
             setFinished(true);
@@ -226,8 +269,8 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
         } catch (e: any) {
             console.error(e);
             toast.error(e.message || "Upload failed");
-            setIsUploading(false);
-            isCapturingRef.current = false;
+            setLastError(e.message);
+            setIsFinishing(false);
         }
     };
 
@@ -238,11 +281,12 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
     if (initializationError) {
         return (
             <div className="fixed inset-0 bg-black flex flex-col items-center justify-center text-white p-8 text-center space-y-6">
+                {/* Error View */}
                 <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-2">
                     <Camera className="w-8 h-8 text-red-500" />
                 </div>
                 <div>
-                    <h2 className="text-2xl font-bold mb-2 text-red-400">Camera Access Blocked</h2>
+                    <h2 className="text-2xl font-bold mb-2 text-red-400">Camera Error</h2>
                     <p className="text-zinc-400 max-w-sm mx-auto text-sm leading-relaxed mb-4">
                         {initializationError}
                     </p>
@@ -280,25 +324,26 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                 {/* --- LOADING OVERLAYS --- */}
 
                 {/* 1. Burst Processing */}
-                {isBursting && (
+                {isEnhancing && (
                     <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm">
                         <Loader2 className="w-12 h-12 text-white animate-spin mb-4" />
-                        <span className="text-white font-bold tracking-widest uppercase text-sm">Enhancing...</span>
+                        <span className="text-white font-bold tracking-widest uppercase text-sm">Enhancing Photo...</span>
+                        <span className="text-white/50 text-xs mt-2">Hold steady</span>
                     </div>
                 )}
 
-                {/* 2. Uploading */}
-                {isUploading && (
+                {/* 2. Uploading Finalizer */}
+                {isFinishing && (
                     <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md">
                         <Loader2 className="w-16 h-16 text-green-500 animate-spin mb-4" />
-                        <span className="text-white font-bold tracking-widest uppercase text-lg">Uploading High-Res...</span>
-                        <span className="text-white/50 text-xs mt-2">Do not close browser</span>
+                        <span className="text-white font-bold tracking-widest uppercase text-lg">Finalizing...</span>
+                        <span className="text-white/50 text-xs mt-2">Uploading High-Res Images</span>
                     </div>
                 )}
 
 
                 {/* --- CENTER GUIDANCE TEXT --- */}
-                {guideState === 'left' && !isBursting && !isUploading && (
+                {guideState === 'left' && !isEnhancing && !isFinishing && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-80">
                         <div className="flex flex-col items-center animate-pulse">
                             <ArrowLeft className="w-20 h-20 text-white/50 mb-4" />
@@ -306,7 +351,7 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                         </div>
                     </div>
                 )}
-                {guideState === 'right' && !isBursting && !isUploading && (
+                {guideState === 'right' && !isEnhancing && !isFinishing && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-80">
                         <div className="flex flex-col items-center animate-pulse">
                             <ArrowRight className="w-20 h-20 text-white/50 mb-4" />
@@ -315,21 +360,40 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                     </div>
                 )}
 
+                {/* --- ERROR FEEDBACK --- */}
+                {lastError && !isEnhancing && !isFinishing && (
+                    <div className="absolute top-24 left-0 right-0 flex justify-center pointer-events-none z-20">
+                        <div className="bg-red-500/90 text-white px-6 py-3 rounded-full font-bold shadow-lg animate-bounce flex items-center gap-2">
+                            <span>⚠️ {lastError}</span>
+                        </div>
+                    </div>
+                )}
+
                 {/* --- HUD --- */}
-                {!isUploading && (
+                {!isFinishing && (
                     <>
                         {/* 1. Zone Indicators (Top) */}
-                        <div className="absolute top-8 left-0 right-0 flex justify-center gap-3 pointer-events-none z-10">
+                        <div className="absolute top-8 left-0 right-0 flex justify-center gap-4 pointer-events-none z-10">
                             {ZONES.map((z) => {
                                 const isCaptured = capturedZones.has(z.id);
                                 const isCurrent = guideState === z.id;
+                                const uploadStatus = uploadState[z.id];
+
+                                let colorClass = "bg-white/30";
+                                if (isCaptured) colorClass = "bg-blue-500"; // Captured
+                                if (uploadStatus === 'done') colorClass = "bg-green-500"; // Uploaded
+                                if (uploadStatus === 'error') colorClass = "bg-red-500"; // Error
+
                                 return (
                                     <div key={z.id} className="flex flex-col items-center gap-1 transition-all duration-300">
                                         <div className={cn(
-                                            "w-3 h-3 rounded-full transition-all duration-300",
-                                            isCaptured ? "bg-green-500 scale-125" :
-                                                isCurrent ? "bg-white scale-150 shadow-glow animate-pulse" : "bg-white/30"
+                                            "w-4 h-4 rounded-full transition-all duration-300 border-2 border-transparent",
+                                            isCurrent && "border-white scale-125 shadow-glow",
+                                            colorClass
                                         )} />
+                                        {uploadStatus === 'uploading' && (
+                                            <Loader2 className="w-3 h-3 text-white animate-spin absolute -top-4" />
+                                        )}
                                     </div>
                                 );
                             })}
@@ -338,7 +402,7 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                         {/* 2. DUAL-PHASE PROGRESS BAR (Bottom) */}
                         <div className="absolute bottom-24 left-8 right-8 pointer-events-none z-10 flex flex-col items-center gap-2">
                             <span className="text-white/80 font-medium text-sm tracking-wide shadow-black drop-shadow-md">
-                                {status}
+                                {isEnhancing ? "Enhancing..." : status}
                             </span>
 
                             <div className="w-full max-w-xs h-3 bg-zinc-800/80 backdrop-blur-md rounded-full overflow-hidden border border-white/10 relative">
@@ -354,11 +418,15 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                             </div>
                         </div>
 
-                        {/* 3. Controls (Finish Early) */}
+                        {/* 3. Controls (Retry/Finish) */}
                         <div className="absolute bottom-8 left-0 right-0 flex justify-center z-20">
-                            {captures.size >= 1 && (
-                                <button onClick={() => handleFinish()} className="text-xs text-zinc-400 hover:text-white underline">
-                                    Finish Early
+                            {capturedZones.size >= 1 && (
+                                <button
+                                    onClick={() => handleFinish()}
+                                    className="flex items-center gap-2 text-xs text-zinc-400 hover:text-white bg-black/40 px-4 py-2 rounded-full backdrop-blur-md border border-white/10"
+                                >
+                                    <RefreshCcw className="w-3 h-3" />
+                                    {Object.values(uploadState).some(s => s === 'error') ? "Retry Uploads" : "Finish Early"}
                                 </button>
                             )}
                         </div>
