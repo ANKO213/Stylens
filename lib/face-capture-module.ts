@@ -30,6 +30,7 @@ export interface FrameStats {
     currentZone: TargetZone | null;
     isStable: boolean;
     progress: number; // 0 to 100
+    distanceProgress: number; // 0 to 1 (new)
 }
 
 export class FaceCaptureModule {
@@ -258,13 +259,14 @@ export class FaceCaptureModule {
         this.ctx.setTransform(1, 0, 0, 1, 0, 0);
         this.ctx.clearRect(0, 0, width, height);
 
-        let targetScale = 1.0;
+        let targetScale = this.currentScale; // Default to LAST scale (Persistence)
         let targetCx = width / 2;
         let targetCy = height / 2;
         let pose: Pose = { yaw: 0, pitch: 0, roll: 0 };
         let currentZone: TargetZone | null = null;
         let score = 0;
         let message = "Scanning...";
+        let distanceProgress = 0; // 0 to 1
 
         if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
             this.faceFound = true;
@@ -306,6 +308,13 @@ export class FaceCaptureModule {
             const approxDist = 4.0 / (irisDist + 0.001);
             this.distance = Math.round(approxDist);
 
+            // Normalize Distance for UI Progress (Optimal: 50-90)
+            const optimalCenter = 70;
+            const maxDiff = 40; // Range +/- 40 from 70 (30-110)
+            const diff = Math.abs(this.distance - optimalCenter);
+            // 1.0 = Perfect (70), 0.0 = Far off (>110 or <30)
+            distanceProgress = Math.max(0, 1.0 - (diff / maxDiff));
+
             if (this.distance < 50) message = "Too close!";
             else if (this.distance > 90) message = "Too far!";
             else message = this.faceFound ? "Hold steady" : "Look at camera";
@@ -314,22 +323,44 @@ export class FaceCaptureModule {
 
             // 5. Stability Logic
             const now = performance.now();
-            if (currentZone && currentZone === this.lastZone) {
-                const elapsed = now - this.zoneEnterTime;
-                this.stabilityProgress = Math.min(100, (elapsed / this.STABILITY_THRESHOLD_MS) * 100);
-            } else {
+
+            // Requirements for stability:
+            // 1. Must be in the zone (Front/Left/Right)
+            // 2. Must be in optimal distance range (distanceProgress > 0.8) OR Logic: Side views ignore distance because scale is locked.
+            const distanceGood = distanceProgress > 0.8;
+            const canStabilize = distanceGood || (!!this.lockedScale);
+
+            // Reset stability if zone changed
+            if (currentZone && currentZone !== this.lastZone) {
                 this.lastZone = currentZone;
                 this.zoneEnterTime = now;
                 this.stabilityProgress = 0;
             }
 
+            if (currentZone && canStabilize) {
+                // If we are in the same zone for X ms
+                const elapsed = now - this.zoneEnterTime;
+                this.stabilityProgress = Math.min(100, (elapsed / this.STABILITY_THRESHOLD_MS) * 100);
+            } else {
+                // Decay stability if conditions lost
+                this.stabilityProgress = Math.max(0, this.stabilityProgress - 5);
+                // Update zone entry time so we don't jump to 100 instantly when conditions return
+                this.zoneEnterTime = now;
+            }
+
         } else {
             this.faceFound = false;
-            targetScale = 1.0;
+            // PERSISTENCE: 
+            targetScale = this.currentScale; // Keep last known scale
+            // targetCx/Cy - keep last known or center? 
+            // If we reset to center, image jumps. If we keep last known, it might be weird.
+            // Let's drift back to center slowly?
             targetCx = width / 2;
             targetCy = height / 2;
+
             this.stabilityProgress = 0;
             message = "No face";
+            distanceProgress = 0;
         }
 
         // 6. Smoothing
@@ -358,7 +389,8 @@ export class FaceCaptureModule {
                 pose,
                 currentZone,
                 isStable: this.stabilityProgress >= 100,
-                progress: this.stabilityProgress
+                progress: this.stabilityProgress,
+                distanceProgress
             });
         }
     }
