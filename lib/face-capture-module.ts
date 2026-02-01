@@ -2,7 +2,7 @@
 // ^ BROKEN in Next.js 16 / Turbopack due to missing exports.
 // We will load via CDN script injection.
 
-import { analyzeLight, calculateSharpness, stackFrames, imageDataToBlob } from "./image-processing";
+import { analyzeLight, calculateSharpness, imageDataToBlob, FrameAccumulator } from "./image-processing";
 
 type Results = any;
 type FaceMesh = any;
@@ -192,15 +192,13 @@ export class FaceCaptureModule {
 
         if (this.video.readyState >= 2 && this.faceMesh && !this.isBursting) {
             // Only create detection overhead if NOT bursting
-            // During burst, we pause detection updates to save CPU for frame capture?
-            // Actually, we need detection to run to keep 'faceFound' true?
-            // Let's run it.
             await this.faceMesh.send({ image: this.video });
         } else if (this.isBursting) {
-            // If bursting, we might skip face mesh updates to prioritize frame capture speed
-            // But we still need to draw the video feed?
+            // Freeze view on what we are scanning? 
+            // Or just keep drawing last frame?
+            // Detection is paused.
             const { width, height } = this.canvas;
-            // We can just rely on the last known transform
+            // Draw current video feed so user sees what's happening
             this.ctx.save();
             this.ctx.translate(width / 2, height / 2);
             this.ctx.scale(-this.currentScale, this.currentScale);
@@ -227,30 +225,38 @@ export class FaceCaptureModule {
         this.lockedScale = scale;
     }
 
-    // --- SUPER-RESOLUTION BURST ---
+    // --- SUPER-RESOLUTION BURST (Optimized) ---
 
     public async takeBurstPhoto(): Promise<Blob> {
         if (this.isBursting) throw new Error("Already capturing");
         this.isBursting = true;
 
+        let accumulator: FrameAccumulator | null = null;
+
         try {
             // 1. Setup Capture
-            const frames: ImageData[] = [];
-            const MAX_FRAMES = 20;
-            const captureCanvas = new OffscreenCanvas(this.video.videoWidth, this.video.videoHeight);
-            const captureCtx = captureCanvas.getContext('2d');
+            const MAX_FRAMES = 12; // Reduced from 20 to safe memory
+            const videoW = this.video.videoWidth;
+            const videoH = this.video.videoHeight;
+
+            const captureCanvas = new OffscreenCanvas(videoW, videoH);
+            const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
 
             if (!captureCtx) throw new Error("Failed to init offscreen canvas");
 
-            // 2. Continuous Capture Loop
-            // We want to capture as fast as possible.
-            // Using a tight loop with requestAnimationFrame or just setInterval?
-            // await delay betwen frames?
+            // Initialize Accumulator (130MB buffer)
+            accumulator = new FrameAccumulator(videoW, videoH);
+
+            console.log(`Starting Burst: ${videoW}x${videoH} for ${MAX_FRAMES} frames`);
+
+            // 2. Loop
+            let validFrames = 0;
 
             for (let i = 0; i < MAX_FRAMES; i++) {
                 // Draw current video frame to offscreen
+                // Note: captureCtx is reused
                 captureCtx.drawImage(this.video, 0, 0);
-                const imageData = captureCtx.getImageData(0, 0, captureCanvas.width, captureCanvas.height);
+                const imageData = captureCtx.getImageData(0, 0, videoW, videoH);
 
                 // 3. Light Check (First Frame Only - Fail Fast)
                 if (i === 0) {
@@ -262,33 +268,27 @@ export class FaceCaptureModule {
 
                 // 4. Sharpness Check
                 const sharpness = calculateSharpness(imageData);
-                // Threshold: Needs tuning. Typical variance for sharp 4K image > 50?
-                // Relative to what?
-                // Let's just collect all and sort by sharpness later or discard significantly blurry?
-                // For now, let's keep top 50% sharpest.
 
-                // Attach metadata to frame object locally (not ImageData)
-                // Just push to array with metadata
-                // @ts-ignore
-                imageData._sharpness = sharpness;
-                frames.push(imageData);
+                // Simple threshold logic: If < 10 (very blurry), discard.
+                // Typical sharpness for detailed face ~20-50.
+                if (sharpness > 5) {
+                    accumulator.add(imageData);
+                    validFrames++;
+                }
 
-                // Small delay to allow camera to update? 
-                // Video runs at 30/60fps. roughly 16ms or 33ms.
-                // If we run tighter than that, we get duplicate frames.
-                await new Promise(r => setTimeout(r, 33));
+                // Small delay to allow camera sensor update 
+                // 30fps = 33ms. 
+                await new Promise(r => setTimeout(r, 40));
             }
 
-            // 5. Select Best Frames
-            // Sort by sharpness descending
-            // @ts-ignore
-            frames.sort((a, b) => b._sharpness - a._sharpness);
+            if (validFrames === 0) throw new Error("All frames were too blurry. Hold steady.");
 
-            // Keep top 10 frames (best 50%)
-            const bestFrames = frames.slice(0, 10);
+            // 5. Finalize
+            const stackedImageData = accumulator.getResult();
 
-            // 6. Stack & Denoise
-            const stackedImageData = stackFrames(bestFrames);
+            // Cleanup
+            accumulator.dispose();
+            accumulator = null;
 
             // 7. Convert to Blob
             this.isBursting = false;
@@ -296,6 +296,7 @@ export class FaceCaptureModule {
 
         } catch (e) {
             this.isBursting = false;
+            if (accumulator) accumulator.dispose();
             throw e;
         }
     }
@@ -303,14 +304,6 @@ export class FaceCaptureModule {
     // Fallback if burst fails or user wants simple
     public takePhoto(): Promise<Blob | null> {
         return this.takeBurstPhoto();
-        // Or default logic:
-        /*
-        return new Promise((resolve) => {
-            this.canvas.toBlob((blob) => {
-                resolve(blob);
-            }, 'image/png', 1.0);
-        });
-        */
     }
 
 
