@@ -26,8 +26,8 @@ export class FaceCaptureModule {
 
     // State for smoothing (Kalman-ish / Lerp)
     private currentScale = 1.0;
-    private currentTx = 0;
-    private currentTy = 0;
+    private currentCx = 0; // Smoothed Face Center X
+    private currentCy = 0; // Smoothed Face Center Y
 
     // Logic state
     public distance: number = 0;
@@ -44,6 +44,10 @@ export class FaceCaptureModule {
         this.video = videoEl;
         this.canvas = canvasEl;
         this.ctx = canvasEl.getContext("2d")!;
+
+        // Init centers to avoid jump
+        this.currentCx = canvasEl.width / 2;
+        this.currentCy = canvasEl.height / 2;
     }
 
     private loadMediaPipeScript(): Promise<void> {
@@ -102,6 +106,11 @@ export class FaceCaptureModule {
 
         this.isRunning = true;
 
+        // Reset state
+        this.currentCx = this.canvas.width / 2;
+        this.currentCy = this.canvas.height / 2;
+        this.currentScale = 1.0;
+
         if (!streamAlreadyActive) {
             try {
                 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -136,7 +145,7 @@ export class FaceCaptureModule {
         if (!this.faceMesh) {
             const { width, height } = this.canvas;
             this.ctx.save();
-            // Mirroring for fallback too
+            // Simple Mirror
             this.ctx.translate(width, 0);
             this.ctx.scale(-1, 1);
             this.ctx.drawImage(this.video, 0, 0, width, height);
@@ -174,8 +183,8 @@ export class FaceCaptureModule {
         this.ctx.clearRect(0, 0, width, height);
 
         let targetScale = 1.0;
-        let targetTx = 0; // Relative translation
-        let targetTy = 0;
+        let targetCx = width / 2;
+        let targetCy = height / 2;
 
         let message = "Center your face";
         let score = 0;
@@ -184,42 +193,31 @@ export class FaceCaptureModule {
             this.faceFound = true;
             const landmarks = results.multiFaceLandmarks[0];
 
-            // 1. Calculate Face Geometry in Pixels
-            // Landmarks 454 (Left Ear) -> 234 (Right Ear) roughly defines face width
+            // 1. Calculate Face Scale
             const leftEar = landmarks[234];
             const rightEar = landmarks[454];
 
-            const dx = (rightEar.x - leftEar.x) * width; // Pixel width on canvas if drawn 1:1
+            const dx = (rightEar.x - leftEar.x) * width;
             const dy = (rightEar.y - leftEar.y) * height;
             const faceWidthPx = Math.sqrt(dx * dx + dy * dy);
 
-            // 2. Target Scale Logic ("Real Face" / Dolly Zoom)
-            // We want faceWidthPx to ALWAYS be (width * targetFaceWidthRatio)
+            // Goal: faceWidthPx = width * Ratio
             const desiredWidthPx = width * this.targetFaceWidthRatio;
-            targetScale = desiredWidthPx / (faceWidthPx + 1); // Avoid div by 0
-
-            // Clamp scale for sanity (1x to 4x)
+            targetScale = desiredWidthPx / (faceWidthPx + 1);
             targetScale = Math.max(1.0, Math.min(targetScale, 4.0));
 
-            // 3. Optical Centering
-            // Find face center (nose bridge landmark 6)
+            // 2. Face Center
             const nose = landmarks[6];
-            const faceCx = nose.x * width;
-            const faceCy = nose.y * height;
+            targetCx = nose.x * width;
+            targetCy = nose.y * height;
 
-            // Target offset from center = (CanvasCenter - FaceCenter)
-            targetTx = (width / 2) - faceCx;
-            targetTy = (height / 2) - faceCy;
-
-            // 4. Distance Calculation for User Feedback
-            // Rough estimation
-            // Iris width approach again for consistency in 'cm' metric
+            // 3. Distance Calculation
             const lIris = landmarks[468];
             const rIris = landmarks[473];
             const irisDx = rIris.x - lIris.x;
             const irisDy = rIris.y - lIris.y;
             const irisDist = Math.sqrt(irisDx * irisDx + irisDy * irisDy);
-            const approxDist = 4.0 / (irisDist + 0.001); // K constant
+            const approxDist = 4.0 / (irisDist + 0.001);
             this.distance = Math.round(approxDist);
 
             if (this.distance < 55) {
@@ -235,10 +233,11 @@ export class FaceCaptureModule {
 
         } else {
             this.faceFound = false;
-            // Slowly return to normal
+            // Slowly return to center/normal
             targetScale = 1.0;
-            targetTx = 0;
-            targetTy = 0;
+            targetCx = width / 2;
+            targetCy = height / 2;
+
             score = 0;
             message = "No face detected";
         }
@@ -246,99 +245,36 @@ export class FaceCaptureModule {
         // 5. Smoothing (Lerp)
         const alpha = 0.15; // Smoothing factor
         this.currentScale = this.currentScale * (1 - alpha) + targetScale * alpha;
-        this.currentTx = this.currentTx * (1 - alpha) + targetTx * alpha;
-        this.currentTy = this.currentTy * (1 - alpha) + targetTy * alpha;
+        this.currentCx = this.currentCx * (1 - alpha) + targetCx * alpha;
+        this.currentCy = this.currentCy * (1 - alpha) + targetCy * alpha;
 
         // 6. Draw with Transforms
         this.ctx.save();
 
-        // Handle Mirroring + Centering + Zooming
-
-        // 1. Move to Center of Canvas
+        // Order:
+        // 1. Move Origin to Canvas Center (500, 500)
         this.ctx.translate(width / 2, height / 2);
 
-        // 2. Mirror Horizontally (around center)
-        this.ctx.scale(-1, 1);
+        // 2. Apply Mirror AND Zoom
+        // scale(-S, S) mirrors horizontally and zooms
+        this.ctx.scale(-this.currentScale, this.currentScale);
 
-        // 3. Apply Zoom
-        this.ctx.scale(this.currentScale, this.currentScale);
+        // 3. Move Origin to Face Center
+        // We want the face center (currentCx, currentCy) to appear at the current origin (Canvas Center).
+        // Since we are in Source coordinates (before Mirror flips), we translate by (-Cx, -Cy).
+        this.ctx.translate(-this.currentCx, -this.currentCy);
 
-        // 4. Translate back to top-left relative corner...
-        // BUT we also need to center the face.
-        // The face is at (faceCx, faceCy) in the source image.
-        // If we simply draw image at (-w/2, -h/2), center of image (w/2, h/2) is at 0,0 (canvas center).
-
-        // We want (faceCx, faceCy) to be at 0,0.
-        // So we translate (-faceCx, -faceCy).
-        // Since we mirrored X, faceCx logic might be flipped? 
-        // MediaPipe coords are 0-1 relative to image.
-        // Mirroring flips the drawing, so left becomes right.
-        // If we translate by (-faceCx, -faceCy) BEFORE mirroring, it moves the face to origin.
-        // Let's think:
-        // Ctx at Center.
-        // Scale(-1, 1). X axis flipped.
-        // Scale(Zoom).
-        // Translate(-faceCx + w/2, -faceCy + h/2)? 
-
-        // Let's use the smoothed Tx/Ty logic which was: Tx = (w/2 - faceCx).
-        // If we translate by (Tx, Ty), we shift the image so face is at w/2.
-
-        // Correct transform sequence for "Mirror + Zoom + Pan to Face":
-        // T(w/2, h/2) -> S(zoom) -> S(-1, 1) -> T(-faceCx, -faceCy) ? No.
-
-        // Let's do:
-        // 1. Center origin: Translate(w/2, h/2)
-        // 2. Mirror: Scale(-1, 1)
-        // 3. Zoom: Scale(s, s)
-        // 4. Move face to origin: Translate(width/2 - faceCx, width/2 - faceCy) -- wait, (w/2 - faceCx) IS Tx.
-        // So Translate(Tx, Ty)?
-        // BUT since we are mirrored/flipped X, a positive translation in X moves LEFT (visual right).
-        // If face is at x=100 (left side), faceCx=100. Width=1000. Tx = 400.
-        // If we move +400, it moves 'right' in source coords... which is 'left' in mirrored coords?
-        // This is confusing. 
-
-        // Alternative:
-        // Calculate offset to move face center to (0,0).
-        // offsetX = -faceCx
-        // offsetY = -faceCy
-        // Then draw image at (offsetX, offsetY), centered on face.
-        // Ctx is at (w/2, h/2).
-
-        const smoothedFaceCx = (width / 2) - this.currentTx;
-        const smoothedFaceCy = (height / 2) - this.currentTy;
-
-        // Move to center
-        this.ctx.translate(width / 2, height / 2);
-        this.ctx.scale(-1, 1); // Mirror
-        this.ctx.scale(this.currentScale, this.currentScale); // Zoom
-
-        // Translate such that face center is at (0,0).
-        // Since we are mirrored, X coords are flipped.
-        // Drawing image at (-width/2, -height/2) centers the IMAGE.
-        // To center the FACE, we need to shift.
-        // Shift amount: (width/2 - faceCx).
-
-        // If we simply translate(-faceCx, -faceCy)? No, we need relative to center.
-        // We need to draw the image such that (faceCx, faceCy) is at (0,0).
-        // So drawImage(img, -faceCx, -faceCy).
-
-        // Yes! 
-        this.ctx.drawImage(results.image, -smoothedFaceCx, -smoothedFaceCy, width, height);
+        // Draw Video at (0,0)
+        this.ctx.drawImage(results.image, 0, 0, width, height);
 
         // Debug Visuals (drawn in same space)
         if (this.faceFound && results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
             const landmarks = results.multiFaceLandmarks[0];
-            // Nose (4)
-            const nose = landmarks[4];
+            const nose = landmarks[6];
+            // Draw dots at original source coordinates
             this.ctx.fillStyle = "cyan";
             this.ctx.beginPath();
-            // Draw at (coord - faceCx), etc.
-            // Or just use the original coords and let the transform handle it?
-            // Since we used drawImage with offset, we must apply offset to landmarks too.
-            const lx = nose.x * width - smoothedFaceCx;
-            const ly = nose.y * height - smoothedFaceCy;
-
-            this.ctx.arc(lx, ly, 10 / this.currentScale, 0, 2 * Math.PI); // Scale down dot
+            this.ctx.arc(nose.x * width, nose.y * height, 10 / this.currentScale, 0, 2 * Math.PI);
             this.ctx.fill();
         }
 
