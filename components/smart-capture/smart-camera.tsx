@@ -30,30 +30,63 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
             // Notify desktop we are here
             await updateSessionStatus(sessionId, 'scanning');
 
-            if (videoRef.current && canvasRef.current) {
-                videoRef.current.width = 1920;
-                videoRef.current.height = 1080;
-                canvasRef.current.width = 1920;
-                canvasRef.current.height = 1080;
+            // Wait for video to be ready to get dimensions
+            if (videoRef.current) {
+                const video = videoRef.current;
 
-                const mod = new FaceCaptureModule(videoRef.current, canvasRef.current);
-                moduleRef.current = mod;
+                // Helper to start stream and get dimensions
+                const startStream = async () => {
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        throw new Error(
+                            "Camera access is not supported. Use HTTPS or localhost." +
+                            (window.location.protocol === 'http:' ? " (Current: HTTP)" : "")
+                        );
+                    }
 
-                mod.onFrameProcessed = (stats) => {
-                    if (!active) return;
-                    setStatus(stats.message);
-                    setQualityScore(stats.score);
-                    // Smooth smoothing for scale to prevent jitter
-                    setScale(prev => prev * 0.9 + stats.scaleFactor * 0.1);
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            facingMode: "user",
+                            width: { ideal: 1920 }, // Try high res
+                            height: { ideal: 1080 }
+                        }
+                    });
+
+                    video.srcObject = stream;
+                    await video.play();
+
+                    // Wait for dimensions
+                    while (video.videoWidth === 0) {
+                        await new Promise(r => requestAnimationFrame(r));
+                    }
+
+                    return { w: video.videoWidth, h: video.videoHeight };
                 };
 
                 try {
-                    await mod.start();
+                    const dims = await startStream();
+
+                    if (active && canvasRef.current) {
+                        // Match canvas to video exactly to strictly prevent stretching
+                        canvasRef.current.width = dims.w;
+                        canvasRef.current.height = dims.h;
+
+                        const mod = new FaceCaptureModule(videoRef.current, canvasRef.current);
+                        moduleRef.current = mod;
+
+                        mod.onFrameProcessed = (stats) => {
+                            if (!active) return;
+                            setStatus(stats.message);
+                            setQualityScore(stats.score);
+                            setScale(prev => prev * 0.9 + stats.scaleFactor * 0.1);
+                        };
+
+                        // Module already expects stream to be running, so we just set flag
+                        await mod.start(true); // Should update start to accept "already running" or just handle it
+                    }
                 } catch (e: any) {
                     console.error(e);
-                    toast.error(e.message || "Camera access failed");
-                    setStatus("Camera Error: " + (e.message || "Unknown error"));
-                    setInitializationError(e.message || "Unknown error");
+                    toast.error(e.message || "Camera failed");
+                    setInitializationError(e.message);
                 }
             }
         };

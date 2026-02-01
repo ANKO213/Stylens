@@ -88,7 +88,7 @@ export class FaceCaptureModule {
         this.faceMesh.onResults(this.onResults.bind(this));
     }
 
-    public async start() {
+    public async start(streamAlreadyActive = false) {
         if (this.isRunning) return;
 
         try {
@@ -100,34 +100,36 @@ export class FaceCaptureModule {
 
         this.isRunning = true;
 
-        // Start Camera Manually
-        try {
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                throw new Error(
-                    "Camera access is not supported in this browser or context. " +
-                    "If you are on mobile, you MUST use HTTPS or localhost. " +
-                    "HTTP on a local IP (192.168.x.x) is blocked by browser security."
-                );
-            }
-
-            // Request 4K/High Res
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                    width: { ideal: 3840 },
-                    height: { ideal: 2160 },
-                    facingMode: "user"
+        if (!streamAlreadyActive) {
+            // Start Camera Manually
+            try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error(
+                        "Camera access is not supported in this browser or context. " +
+                        "If you are on mobile, you MUST use HTTPS or localhost. " +
+                        "HTTP on a local IP (192.168.x.x) is blocked by browser security."
+                    );
                 }
-            });
-            this.video.srcObject = stream;
-            await this.video.play();
 
-            // Start Loop
-            this.processFrame();
-        } catch (e) {
-            console.error("Camera failed", e);
-            this.isRunning = false;
-            throw e;
+                // Request 4K/High Res
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 3840 },
+                        height: { ideal: 2160 },
+                        facingMode: "user"
+                    }
+                });
+                this.video.srcObject = stream;
+                await this.video.play();
+            } catch (e) {
+                console.error("Camera failed", e);
+                this.isRunning = false;
+                throw e;
+            }
         }
+
+        // Start Loop
+        this.processFrame();
     }
 
     private async processFrame() {
