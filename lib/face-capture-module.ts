@@ -165,35 +165,53 @@ export class FaceCaptureModule {
             const landmarks = results.multiFaceLandmarks[0];
 
             // 1. Calculate approximate distance
-            // Iris landmarks: 468 (L), 473 (R)
-            const leftEye = landmarks[468]; // center of left iris
-            const rightEye = landmarks[473]; // center of right iris
-
+            // Iris (468, 473) width in normalized coordinates (0-1)
+            const leftEye = landmarks[468];
+            const rightEye = landmarks[473];
             const dx = rightEye.x - leftEye.x;
             const dy = rightEye.y - leftEye.y;
-            const pixelDist = Math.sqrt(dx * dx + dy * dy); // Normalized 0-1
+            const irisWidth = Math.sqrt(dx * dx + dy * dy);
 
-            // Heuristic Function for Distance (in cm)
-            this.distance = Math.round(5 / pixelDist);
+            // Heuristic: Distance ~ Constant / irisWidth
+            // Let's calibrate: 
+            // At 50cm (arm bent), irisWidth ~ 0.08? (depends on FOV)
+            // K = 50 * 0.08 = 4.0
 
-            // 2. Dynamic Scaling (The "Lens Hack")
-            scaleFactor = Math.max(1.0, this.distance / 40); // Base 40cm. 
-            if (scaleFactor > 2.0) scaleFactor = 2.0; // Limit zoom
+            const rawDistance = 4.0 / (irisWidth + 0.001);
 
-            // 3. Guidance
-            if (this.distance < this.idealDistanceMin) {
-                message = "Move phone further away";
-                score = 0.3;
-            } else if (this.distance > this.idealDistanceMax) {
-                message = "Move closer";
-                score = 0.5;
+            // Smooth distance to prevent jitter
+            this.distance = this.distance * 0.8 + rawDistance * 0.2;
+
+            // 2. Dynamic Scaling ("Lens Hack")
+            // Goal: Keep face roughly same size on screen regardless of distance.
+            // If user is at 50cm, scale = 1.0
+            // If user is at 100cm, scale = 2.0
+
+            // Reference distance we want to emulate (e.g. 50cm proximity look, but physically far)
+            const referenceDistance = 45;
+
+            // Calculate scale
+            scaleFactor = this.distance / referenceDistance;
+
+            // Clamp strictly
+            scaleFactor = Math.max(1.0, Math.min(scaleFactor, 3.0));
+
+            // 3. Guidance logic
+            // We want them FAR away to get the telephoto compression
+            if (this.distance < 60) {
+                message = "Move phone further away"; // Too close => Wide angle distortion
+                score = 0.4;
+            } else if (this.distance > 90) {
+                message = "Move closer"; // Too far => Resolution loss
+                score = 0.6;
             } else {
-                message = "Perfect distance";
-                score = 0.9;
+                message = "Perfect. Hold still.";
+                score = 0.95;
             }
 
         } else {
             this.faceFound = false;
+            // Slowly reset scale if face lost
             scaleFactor = 1.0;
             this.distance = 0;
             message = "No face detected";
@@ -202,7 +220,7 @@ export class FaceCaptureModule {
 
         if (this.onFrameProcessed) {
             this.onFrameProcessed({
-                distance: this.distance,
+                distance: Math.round(this.distance),
                 faceFound: this.faceFound,
                 message,
                 scaleFactor,

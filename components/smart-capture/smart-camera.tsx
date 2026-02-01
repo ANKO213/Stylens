@@ -186,9 +186,9 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                 </div>
 
                 {/* Face Frame / Target */}
-                {/* <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-30">
-                     <div className="w-[60vw] h-[75vw] border-2 border-white rounded-[40%] border-dashed" />
-                 </div> */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-30">
+                    <div className="w-[50vw] h-[65vw] border-2 border-white rounded-[40%] border-dashed" />
+                </div>
             </div>
 
             {/* Controls */}
