@@ -77,7 +77,6 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                             if (!active) return;
                             setStatus(stats.message);
                             setQualityScore(stats.score);
-                            setScale(prev => prev * 0.9 + stats.scaleFactor * 0.1);
                         };
 
                         // Module already expects stream to be running, so we just set flag
@@ -194,12 +193,7 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                 <video ref={videoRef} className="hidden" playsInline muted />
 
                 {/* Processed Canvas with Zoom */}
-                <div
-                    className="relative w-full h-full transition-transform duration-200 ease-out will-change-transform flex items-center justify-center"
-                    style={{
-                        transform: `scale(${scale})`
-                    }}
-                >
+                <div className="relative w-full h-full flex items-center justify-center">
                     <canvas
                         ref={canvasRef}
                         className="object-cover h-full w-full"
