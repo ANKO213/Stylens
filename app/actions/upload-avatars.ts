@@ -3,125 +3,74 @@
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createServerClient } from "@/utils/supabase/server";
 
-export async function uploadAvatars(formData: FormData) {
-    // 1. Authenticate User
-    const supabaseUserClient = await createServerClient();
-    const { data: { user }, error: authError } = await supabaseUserClient.auth.getUser();
-
-    if (authError || !user || !user.email) {
-        return { error: "User not authenticated or email missing" };
-    }
-
-    const email = user.email;
-    const userId = user.id;
-
-    // 2. Initialize Admin Client (for DB updates)
-    const supabaseAdmin = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
-        {
-            auth: {
-                autoRefreshToken: false,
-                persistSession: false
-            }
-        }
-    );
-
+// New specialized action: "I have uploaded these files to R2, please update DB and cleanup old ones"
+export async function confirmAvatarUpload(uploadedKeys: string[]) {
     try {
+        // 1. Authenticate
+        const supabaseUserClient = await createServerClient();
+        const { data: { user }, error: authError } = await supabaseUserClient.auth.getUser();
+
+        if (authError || !user || !user.email) return { error: "Unauthorized" };
+
+        const email = user.email;
+        const userId = user.id;
+
+        // 2. Admin Client
+        const supabaseAdmin = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+            { auth: { autoRefreshToken: false, persistSession: false } }
+        );
+
         const { r2, R2_BUCKET_NAME, R2_PUBLIC_DOMAIN } = await import("@/lib/r2");
-        const { PutObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } = await import("@aws-sdk/client-s3");
+        const { ListObjectsV2Command, DeleteObjectsCommand } = await import("@aws-sdk/client-s3");
 
-        // --- STRICT FOLDER ENFORCEMENT ---
-        // R2 Structure: avatars/{email}/
         const folderPrefix = `avatars/${email}/`;
+        console.log(`[ConfirmUpload] Processing for ${email}`);
 
-        console.log(`[AvatarUpload R2] Start. User: ${email}`);
-
-        // 3. CLEANUP PHASE: "Clean Slate"
-        // List everything in the user's folder
-        const listCommand = new ListObjectsV2Command({
-            Bucket: R2_BUCKET_NAME,
-            Prefix: folderPrefix
-        });
-
+        // 3. CLEANUP ORPHANS
+        // List all files in folder
+        const listCommand = new ListObjectsV2Command({ Bucket: R2_BUCKET_NAME, Prefix: folderPrefix });
         const listResponse = await r2.send(listCommand);
 
-        if (listResponse.Contents && listResponse.Contents.length > 0) {
-            console.log(`[AvatarUpload R2] Found ${listResponse.Contents.length} old files. Deleting...`);
-            const objectsToDelete = listResponse.Contents.map(obj => ({ Key: obj.Key }));
+        const allObjects = listResponse.Contents || [];
+        const objectsToDelete = allObjects
+            .filter(obj => obj.Key && !uploadedKeys.includes(obj.Key)) // Delete anything NOT in the new list
+            .map(obj => ({ Key: obj.Key }));
 
-            const deleteCommand = new DeleteObjectsCommand({
+        if (objectsToDelete.length > 0) {
+            console.log(`[ConfirmUpload] Deleting ${objectsToDelete.length} old/orphaned files...`);
+            await r2.send(new DeleteObjectsCommand({
                 Bucket: R2_BUCKET_NAME,
-                Delete: {
-                    Objects: objectsToDelete,
-                    Quiet: true
-                }
-            });
-
-            await r2.send(deleteCommand);
-            console.log("[AvatarUpload R2] Cleanup successful.");
+                Delete: { Objects: objectsToDelete, Quiet: true }
+            }));
         }
 
-        // 4. UPLOAD PHASE
-        const mainFile = formData.get("main") as File;
-        const side1File = formData.get("side1") as File;
-        const side2File = formData.get("side2") as File;
+        // 4. DETERMINE MAIN URL
+        // We assume "main" is one of the keys or we just pick the first valid one?
+        // The frontend sends keys like "avatars/email/main", "avatars/email/side1"
+        // so we look for the one containing "main".
+        const mainKey = uploadedKeys.find(k => k.includes("main")) || uploadedKeys[0];
 
-        if (!mainFile) return { error: "Main photo is required" };
+        if (!mainKey) return { error: "No main avatar found" };
 
-        let finalAvatarUrl = "";
-
-        // Helper
-        const processUpload = async (file: File, name: string) => {
-            const buffer = Buffer.from(await file.arrayBuffer());
-
-            // No extension to ensure predictable URLs for the client (side1, side2)
-            const fileName = name;
-            // Path: avatars/{email}/{fileName}
-            const key = `${folderPrefix}${fileName}`;
-
-            console.log(`[AvatarUpload R2] Uploading ${name} to ${key}`);
-
-            await r2.send(new PutObjectCommand({
-                Bucket: R2_BUCKET_NAME,
-                Key: key,
-                Body: buffer,
-                ContentType: file.type,
-            }));
-
-            // Construct Public URL
-            // Ensure no double slashes if domain ends with slash
-            if (!R2_PUBLIC_DOMAIN) throw new Error("R2_PUBLIC_DOMAIN is not defined");
-            const domain = R2_PUBLIC_DOMAIN.replace(/\/$/, "");
-            const publicUrl = `${domain}/${key}`;
-
-            console.log(`[AvatarUpload R2] Success: ${publicUrl}`);
-            return publicUrl;
-        };
-
-        // A. Upload Main
-        const mainUrl = await processUpload(mainFile, "main");
-
-        // With R2, we might still want a cache buster parameter for the DB just in case Cloudflare caches aggressively at the edge
-        finalAvatarUrl = `${mainUrl}?t=${Date.now()}`;
-
-        // B. Upload Sides
-        if (side1File) await processUpload(side1File, "side1");
-        if (side2File) await processUpload(side2File, "side2");
+        if (!R2_PUBLIC_DOMAIN) throw new Error("R2_PUBLIC_DOMAIN missing");
+        const domain = R2_PUBLIC_DOMAIN.replace(/\/$/, "");
+        const finalUrl = `${domain}/${mainKey}?t=${Date.now()}`;
 
         // 5. UPDATE DB
         const { error: dbError } = await supabaseAdmin
             .from("profiles")
-            .update({ avatar_url: finalAvatarUrl })
+            .update({ avatar_url: finalUrl })
             .eq("id", userId);
 
         if (dbError) throw dbError;
 
-        console.log("[AvatarUpload R2] Complete. DB updated.");
-        return { success: true, avatarUrl: finalAvatarUrl };
+        console.log("[ConfirmUpload] Success. DB updated.");
+        return { success: true, avatarUrl: finalUrl };
 
     } catch (error: any) {
-        console.error("Upload Avatars Fatal Error (R2):", error);
-        return { error: error.message || "Server upload failed" };
+        console.error("Confirm Upload Error:", error);
+        return { error: error.message };
     }
 }

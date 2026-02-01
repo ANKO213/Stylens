@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
 
         // Construct Prompt
         const basePrompt = `${prompt}.
-IMPORTANT: High quality, photorealistic, cinematic lighting, 8k resolution.`;
+IMPORTANT: High quality, photorealistic, cinematic lighting, HQ resolution (1792x2400 pixels).`;
 
         // Refined Prompt for Identity Preservation
         const finalPrompt = `Generate an image based on this prompt: ${basePrompt}. 
@@ -147,7 +147,8 @@ IMPORTANT: The character in the image MUST have the exact same facial features a
             body: JSON.stringify({
                 model: "google/gemini-3-pro-image-preview",
                 messages: messages,
-                modalities: ["image", "text"]
+                modalities: ["image", "text"],
+                resolution: "2K",
             }),
         });
 

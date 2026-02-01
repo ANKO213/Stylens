@@ -11,6 +11,7 @@ import {
     Loader2,
     CheckCircle,
     AlertCircle,
+    Smartphone
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import * as faceapi from "face-api.js";
 import { toast } from "sonner";
+import { QRBridge } from "@/components/smart-capture/qr-bridge";
 
 // Example image
 const EXAMPLE_IMAGE_URL = "/images/good-example.jpg";
@@ -32,11 +34,15 @@ const EXAMPLE_IMAGE_URL = "/images/good-example.jpg";
 interface FaceUploadProps {
     onUpload: (file: File) => Promise<void>;
     isLoading?: boolean;
-    className?: string; // Kept for compatibility, though wide layout might ignore it
+    className?: string; // Kept for compatibility
     onClose?: () => void;
+    customUploadHandler?: (files: { main: File; side1: File | null; side2: File | null }) => Promise<void>;
+    simple?: boolean;
 }
 
-export function FaceUpload({ onUpload, isLoading = false, onClose }: FaceUploadProps) {
+export function FaceUpload({ onUpload, isLoading = false, onClose, customUploadHandler, simple = false }: FaceUploadProps) {
+    const [showQR, setShowQR] = useState(false);
+
     // We now manage 3 slots locally
     const [slots, setSlots] = useState<{
         main: { file: File | null; preview: string | null };
@@ -89,8 +95,6 @@ export function FaceUpload({ onUpload, isLoading = false, onClose }: FaceUploadP
         e.preventDefault();
         setIsDragging(false);
         if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-            // Default to 'main' if no slot active, or the hovered slot logic could be complex
-            // For simplicity, if dropping on the main area, use active slot or main
             handleFile(e.dataTransfer.files[0], activeSlot || 'main');
         }
     };
@@ -131,15 +135,8 @@ export function FaceUpload({ onUpload, isLoading = false, onClose }: FaceUploadP
 
             if (detections.length === 0) throw new Error("No face detected. Please try a clearer photo.");
 
-            // Allow multiple faces for now as side profiles might verify differently or pick up background faces
-            // Strict check only on main maybe? keeping simple for now.
-            // if (detections.length > 1) throw new Error("Multiple faces detected. Please upload a solo selfie.");
-
             return true;
         } catch (error: any) {
-            // setErrorMsg(error.message || "Face validation failed");
-            // return false;
-            // Temporarily bypass strictly validation failures to not block user workflow if model is flaky
             console.warn("Validation warning:", error.message);
             return true;
         }
@@ -156,6 +153,7 @@ export function FaceUpload({ onUpload, isLoading = false, onClose }: FaceUploadP
             return () => clearTimeout(timer);
         }
     }, [uploadStatus, slots.main.file, onUpload]);
+
 
     const handleSave = async () => {
         // Must have at least main photo
@@ -180,23 +178,66 @@ export function FaceUpload({ onUpload, isLoading = false, onClose }: FaceUploadP
         }
 
         try {
-            // Use Server Action for secure atomic upload & cleanup
-            const formData = new FormData();
-            formData.append("main", slots.main.file);
-            if (slots.side1.file) formData.append("side1", slots.side1.file);
-            if (slots.side2.file) formData.append("side2", slots.side2.file);
+            // CUSTOM HANDLER PATH
+            if (customUploadHandler) {
+                await customUploadHandler({
+                    main: slots.main.file,
+                    side1: slots.side1.file,
+                    side2: slots.side2.file
+                });
+                setUploadStatus("success");
+                return;
+            }
 
-            const { uploadAvatars } = await import("@/app/actions/upload-avatars");
-            const result = await uploadAvatars(formData);
+            // DEFAULT PROFILE UPLOAD PATH
+            // Import actions
+            const { getPresignedUrl } = await import("@/app/actions/get-presigned-url");
+            const { confirmAvatarUpload } = await import("@/app/actions/upload-avatars");
 
-            if (result.error) throw new Error(result.error);
+            const uploadedKeys: string[] = [];
+            const filesToUpload = [
+                { file: slots.main.file, name: "main" },
+                { file: slots.side1.file, name: "side1" },
+                { file: slots.side2.file, name: "side2" }
+            ].filter(item => item.file !== null) as { file: File, name: string }[];
+
+            // 1. Upload Loop
+            for (const { file, name } of filesToUpload) {
+                // Get URL
+                const presignResult = await getPresignedUrl(name, file.type);
+                if (presignResult.error || !presignResult.url) {
+                    throw new Error(presignResult.error || `Failed to get upload URL for ${name}`);
+                }
+
+                // Upload direct to R2
+                const uploadRes = await fetch(presignResult.url, {
+                    method: "PUT",
+                    body: file,
+                    headers: {
+                        "Content-Type": file.type
+                    }
+                });
+
+                if (!uploadRes.ok) {
+                    throw new Error(`Failed to upload ${name} to storage.`);
+                }
+
+                if (presignResult.key) {
+                    uploadedKeys.push(presignResult.key);
+                }
+            }
+
+            // 2. Confirm & Cleanup
+            const confirmResult = await confirmAvatarUpload(uploadedKeys);
+            if (confirmResult.error) {
+                throw new Error(confirmResult.error);
+            }
 
             setUploadStatus("success");
-            // Auto-close useEffect handles the rest
 
         } catch (err: any) {
             console.error(err);
-            setUploadStatus("idle"); // Reset to idle on error
+            setUploadStatus("idle");
             toast.error(err.message || "Failed to upload photos");
         }
     };
@@ -208,7 +249,24 @@ export function FaceUpload({ onUpload, isLoading = false, onClose }: FaceUploadP
     };
 
     return (
-        <div className="flex flex-col md:flex-row h-full md:h-[600px] w-full bg-zinc-950 text-white rounded-[32px] overflow-hidden border border-zinc-800 shadow-2xl relative">
+        <div className={cn(
+            "flex flex-col md:flex-row w-full bg-zinc-950 text-white rounded-[32px] overflow-hidden border border-zinc-800 shadow-2xl relative transition-all",
+            simple ? "h-full" : "h-full md:h-[600px]"
+        )}>
+            {/* QR Bridge Overlay */}
+            {showQR && (
+                <QRBridge
+                    onCancel={() => setShowQR(false)}
+                    onCaptureComplete={(key) => {
+                        setShowQR(false);
+                        toast.success("Mobile capture received! (Demo Integration)", {
+                            description: `Key: ${key.substring(0, 8)}...`
+                        });
+                        // ideally trigger next step or state update
+                    }}
+                />
+            )}
+
             {/* Hidden Input */}
             <input
                 type="file"
@@ -228,182 +286,193 @@ export function FaceUpload({ onUpload, isLoading = false, onClose }: FaceUploadP
                 </button>
             )}
 
-            {/* Left Side - Guidelines */}
-            <div className="w-full md:w-4/12 bg-zinc-900/50 p-6 flex flex-col relative border-b md:border-b-0 md:border-r border-zinc-800">
-                <div className="mb-6">
-                    <h2 className="text-xl font-medium tracking-tight mb-2 flex items-center gap-2">
-                        <Camera className="w-5 h-5 text-zinc-400" />
-                        Scanning Guide
-                    </h2>
-                    <p className="text-zinc-500 text-xs leading-relaxed">
-                        For best AI resemblance, we need your face from multiple angles.
-                    </p>
-                </div>
+            {/* Left Side - Guidelines - HIDDEN IF SIMPLE */}
+            {!simple && (
+                <div className="w-full md:w-4/12 bg-zinc-900/50 p-6 flex flex-col relative border-b md:border-b-0 md:border-r border-zinc-800">
+                    <div className="mb-6">
+                        <h2 className="text-xl font-medium tracking-tight mb-2 flex items-center gap-2">
+                            <Camera className="w-5 h-5 text-zinc-400" />
+                            Scanning Guide
+                        </h2>
+                        <p className="text-zinc-500 text-xs leading-relaxed">
+                            For best AI resemblance, we need your face from multiple angles.
+                        </p>
+                    </div>
 
-                <div className="flex-1 space-y-4">
-                    <div className="relative group rounded-xl overflow-hidden border border-zinc-700/50 shadow-lg aspect-[4/3]">
-                        <img
-                            src={EXAMPLE_IMAGE_URL}
-                            alt="Good example"
-                            className="w-full h-full object-cover opacity-60"
-                        />
-                        <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="text-zinc-400 text-xs uppercase tracking-widest font-bold">Reference</span>
+                    <div className="flex-1 space-y-4">
+                        <div className="relative group rounded-xl overflow-hidden border border-zinc-700/50 shadow-lg aspect-[4/3]">
+                            <img
+                                src={EXAMPLE_IMAGE_URL}
+                                alt="Good example"
+                                className="w-full h-full object-cover opacity-60"
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center">
+                                <span className="text-zinc-400 text-xs uppercase tracking-widest font-bold">Reference</span>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <GuidelineItem icon={<Check className="w-3 h-3 text-black" />} text="Frontal view (Required)" isValid />
+                            <GuidelineItem icon={<Check className="w-3 h-3 text-black" />} text="Left Profile (Optional)" isValid />
+                            <GuidelineItem icon={<Check className="w-3 h-3 text-black" />} text="Right Profile (Optional)" isValid />
                         </div>
                     </div>
+                </div>
+            )}
 
-                    <div className="space-y-2">
-                        <GuidelineItem icon={<Check className="w-3 h-3 text-black" />} text="Frontal view (Required)" isValid />
-                        <GuidelineItem icon={<Check className="w-3 h-3 text-black" />} text="Left Profile (Optional)" isValid />
-                        <GuidelineItem icon={<Check className="w-3 h-3 text-black" />} text="Right Profile (Optional)" isValid />
+            {/* Right Side - Upload Zones - FULL WIDTH IF SIMPLE */}
+            <div className={cn("w-full p-6 bg-zinc-950 flex flex-col relative", simple ? "md:w-full" : "md:w-8/12")}>
+                {/* Header for Simple Mode */}
+                {simple ? (
+                    <div className="mb-4 flex flex-col items-center justify-center text-center gap-3">
+                        <div>
+                            <h3 className="text-lg font-medium text-white">Upload Photos</h3>
+                            <p className="text-sm text-zinc-500">Frontal face is required.</p>
+                        </div>
+
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowQR(true)}
+                            className="bg-indigo-500/10 border-indigo-500/50 text-indigo-300 hover:bg-indigo-500/20 hover:text-white rounded-full px-4"
+                        >
+                            <Smartphone className="w-4 h-4 mr-2" />
+                            Scan with Phone
+                        </Button>
                     </div>
-                </div>
-            </div>
+                ) : (
+                    <div className="mb-6">
+                        <h3 className="text-2xl font-semibold mb-1 tracking-tight">Create your Digital Twin</h3>
+                        <p className="text-zinc-400 text-sm">Upload your photos to train the AI model.</p>
+                    </div>
+                )}
 
-            {/* Right Side - Upload Zones */}
-            <div className="w-full md:w-8/12 p-6 bg-zinc-950 flex flex-col relative">
-                <div className="mb-6">
-                    <h3 className="text-2xl font-semibold mb-1 tracking-tight">Create your Digital Twin</h3>
-                    <p className="text-zinc-400 text-sm">Upload your photos to train the AI model.</p>
-                </div>
-
-                {/* Grid Layout for Slots */}
-                <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 min-h-0">
-
-                    {/* Main Slot - Takes full height of left column */}
-                    <div className="relative w-full h-full min-h-[300px] md:min-h-0">
+                {/* Upload Slots Grid */}
+                <div
+                    className="flex-1 grid gap-4 grid-cols-1 md:grid-cols-2"
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                >
+                    {/* Main Slot */}
+                    <div className="md:col-span-2 relative group">
                         <div
-                            onClick={() => triggerSelect('main')}
+                            onClick={() => triggerSelect("main")}
                             className={cn(
-                                "relative w-full h-full rounded-2xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all overflow-hidden group",
-                                slots.main.preview ? "border-transparent bg-zinc-900" : "border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900/30"
+                                "h-full w-full rounded-2xl border-2 border-dashed transition-all duration-300 flex flex-col items-center justify-center cursor-pointer relative overflow-hidden min-h-[200px]",
+                                isDragging ? "border-indigo-500 bg-indigo-500/10" : "border-zinc-800 bg-zinc-900/30 hover:bg-zinc-900 hover:border-zinc-600",
+                                slots.main.preview && "border-solid border-zinc-700 p-0"
                             )}
                         >
                             {slots.main.preview ? (
                                 <>
-                                    <img src={slots.main.preview} className="absolute inset-0 w-full h-full object-cover" />
-                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                        <p className="text-white font-medium text-sm">Change Main</p>
-                                    </div>
+                                    <img src={slots.main.preview} className="w-full h-full object-cover opacity-80" />
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); clearSlot('main'); }}
+                                        className="absolute top-2 right-2 p-1 bg-black/50 rounded-full text-white hover:bg-red-500 transition-colors"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
                                 </>
                             ) : (
                                 <>
-                                    <div className="w-12 h-12 rounded-full bg-zinc-900 flex items-center justify-center mb-3 text-zinc-500 group-hover:text-white group-hover:scale-110 transition-all">
-                                        <Upload className="w-5 h-5" />
+                                    <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                                        <Camera className="w-6 h-6 text-zinc-400" />
                                     </div>
-                                    <p className="text-sm font-medium text-zinc-300">Main Photo</p>
-                                    <p className="text-xs text-zinc-600 mt-1">Frontal Face</p>
+                                    <span className="text-sm font-medium text-zinc-300">Frontal Face</span>
+                                    <span className="text-xs text-zinc-600 mt-1">Drag & drop or click</span>
                                 </>
                             )}
                         </div>
                     </div>
 
-                    {/* Side Slots Column - Takes full height of right column, split vertically */}
-                    <div className="flex flex-col gap-4 h-full w-full">
-                        {/* Side 1 */}
-                        <div className="flex-1 relative w-full h-full min-h-[140px] md:min-h-0">
-                            <div
-                                onClick={() => triggerSelect('side1')}
-                                className={cn(
-                                    "relative w-full h-full rounded-2xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all overflow-hidden group",
-                                    slots.side1.preview ? "border-transparent bg-zinc-900" : "border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900/30"
-                                )}
-                            >
-                                {slots.side1.preview ? (
-                                    <>
-                                        <img src={slots.side1.preview} className="absolute inset-0 w-full h-full object-cover" />
-                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                            <p className="text-white font-medium text-xs">Change Side</p>
-                                        </div>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Camera className="w-5 h-5 text-zinc-600 mb-2 group-hover:text-zinc-400" />
-                                        <p className="text-xs font-medium text-zinc-400">Side Profile (L)</p>
-                                    </>
-                                )}
+                    {/* Side Slots (Optional) - Only show if not simple? Or always? Design says simple mode usually hides complexity but user requested "simple" mode in Wizard. Let's keep them small if possible. */}
+                    {!simple && (
+                        <>
+                            <div className="relative group aspect-square">
+                                <div
+                                    onClick={() => triggerSelect("side1")}
+                                    className={cn(
+                                        "h-full w-full rounded-2xl border-2 border-dashed transition-all duration-300 flex flex-col items-center justify-center cursor-pointer relative overflow-hidden",
+                                        slots.side1.preview ? "border-solid border-zinc-700 p-0" : "border-zinc-800 bg-zinc-900/30 hover:bg-zinc-900 hover:border-zinc-600"
+                                    )}
+                                >
+                                    {slots.side1.preview ? (
+                                        <>
+                                            <img src={slots.side1.preview} className="w-full h-full object-cover opacity-80" />
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); clearSlot('side1'); }}
+                                                className="absolute top-2 right-2 p-1 bg-black/50 rounded-full text-white hover:bg-red-500 transition-colors"
+                                            >
+                                                <X className="w-4 h-4" />
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <span className="text-xs text-zinc-500 text-center px-4">Left Profile<br />(Optional)</span>
+                                    )}
+                                </div>
                             </div>
-                        </div>
 
-                        {/* Side 2 */}
-                        <div className="flex-1 relative w-full h-full min-h-[140px] md:min-h-0">
-                            <div
-                                onClick={() => triggerSelect('side2')}
-                                className={cn(
-                                    "relative w-full h-full rounded-2xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all overflow-hidden group",
-                                    slots.side2.preview ? "border-transparent bg-zinc-900" : "border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900/30"
-                                )}
-                            >
-                                {slots.side2.preview ? (
-                                    <>
-                                        <img src={slots.side2.preview} className="absolute inset-0 w-full h-full object-cover" />
-                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                            <p className="text-white font-medium text-xs">Change Side</p>
-                                        </div>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Camera className="w-5 h-5 text-zinc-600 mb-2 group-hover:text-zinc-400" />
-                                        <p className="text-xs font-medium text-zinc-400">Side Profile (R)</p>
-                                    </>
-                                )}
+                            <div className="relative group aspect-square">
+                                <div
+                                    onClick={() => triggerSelect("side2")}
+                                    className={cn(
+                                        "h-full w-full rounded-2xl border-2 border-dashed transition-all duration-300 flex flex-col items-center justify-center cursor-pointer relative overflow-hidden",
+                                        slots.side2.preview ? "border-solid border-zinc-700 p-0" : "border-zinc-800 bg-zinc-900/30 hover:bg-zinc-900 hover:border-zinc-600"
+                                    )}
+                                >
+                                    {slots.side2.preview ? (
+                                        <>
+                                            <img src={slots.side2.preview} className="w-full h-full object-cover opacity-80" />
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); clearSlot('side2'); }}
+                                                className="absolute top-2 right-2 p-1 bg-black/50 rounded-full text-white hover:bg-red-500 transition-colors"
+                                            >
+                                                <X className="w-4 h-4" />
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <span className="text-xs text-zinc-500 text-center px-4">Right Profile<br />(Optional)</span>
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                    </div>
+                        </>
+                    )}
                 </div>
 
-                <div className="mt-8 flex justify-end items-center">
-                    <Button
-                        disabled={!slots.main.file || uploadStatus === "loading"}
-                        onClick={handleSave}
-                        className={cn(
-                            "rounded-full px-8 py-6 text-base font-medium transition-all duration-300 min-w-[160px]",
-                            slots.main.file ? "bg-white text-black hover:bg-zinc-200" : "bg-zinc-900 text-zinc-600 cursor-not-allowed"
-                        )}
-                    >
-                        {uploadStatus === "loading" ? (
-                            <>
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                Uploading...
-                            </>
-                        ) : (
-                            "Use Photos"
-                        )}
-                    </Button>
+                {/* Footer / Actions */}
+                <div className="mt-6 flex justify-end">
+                    {!simple && (
+                        <Button
+                            onClick={handleSave}
+                            disabled={uploadStatus === "loading" || !slots.main.file}
+                            className={cn(
+                                "w-full md:w-auto bg-white text-black hover:bg-zinc-200 rounded-full px-8 transition-all",
+                                uploadStatus === "loading" && "opacity-80"
+                            )}
+                        >
+                            {uploadStatus === "loading" ? (
+                                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Verification...</>
+                            ) : uploadStatus === "success" ? (
+                                <><CheckCircle className="w-4 h-4 mr-2" /> Uploaded!</>
+                            ) : (
+                                "Start Analysis"
+                            )}
+                        </Button>
+                    )}
                 </div>
             </div>
-
-            {/* ALERTS */}
-
-            <AlertDialog open={uploadStatus === "success"} onOpenChange={(open) => !open && setUploadStatus("idle")}>
-                <AlertDialogContent className="bg-zinc-950 border-zinc-800 text-white sm:max-w-md rounded-2xl">
-                    <AlertDialogHeader className="flex flex-col items-center">
-                        <div className="w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center mb-4">
-                            <CheckCircle className="w-8 h-8 text-green-500" />
-                        </div>
-                        <AlertDialogTitle className="text-xl text-center">Reference Photos Saved</AlertDialogTitle>
-                        <AlertDialogDescription className="text-center text-zinc-400">
-                            Validating and updating your profile...
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    {/* Footers matching visual style but maybe simple loader if auto-closing */}
-                    <div className="h-2 w-full bg-zinc-900 rounded-full mt-6 overflow-hidden">
-                        <div className="h-full bg-green-500 animate-[progress_1.5s_ease-in-out_forwards] w-full origin-left" />
-                    </div>
-                </AlertDialogContent>
-            </AlertDialog>
-
         </div>
     );
 }
 
-function GuidelineItem({ icon, text, isValid }: { icon: React.ReactNode; text: string; isValid: boolean }) {
+function GuidelineItem({ icon, text, isValid }: { icon: React.ReactNode, text: string, isValid?: boolean }) {
     return (
-        <div className="flex items-center gap-3 p-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50 backdrop-blur-sm">
-            <div className={cn("w-6 h-6 rounded-full flex items-center justify-center shrink-0", isValid ? "bg-green-500" : "bg-zinc-700")}>
+        <div className="flex items-center gap-3 p-3 rounded-lg bg-zinc-950 border border-zinc-800/50">
+            <div className={cn("w-5 h-5 rounded-full flex items-center justify-center", isValid ? "bg-green-500" : "bg-zinc-800")}>
                 {icon}
             </div>
-            <span className="text-sm text-zinc-200 font-medium">{text}</span>
+            <span className="text-xs text-zinc-400 font-medium">{text}</span>
         </div>
     );
 }

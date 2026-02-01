@@ -31,7 +31,7 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     serverActions: {
-      bodySizeLimit: '10mb', // Support multiple photo uploads
+      bodySizeLimit: '50mb', // Support multiple photo uploads
     },
   },
 };

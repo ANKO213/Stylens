@@ -34,7 +34,8 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { TutorialStep } from "@/components/auth/tutorial-step";
-import { X, Trash2, MoreHorizontal } from "lucide-react";
+import { X, Trash2, MoreHorizontal, ScanFace } from "lucide-react";
+import { ScanModal } from "@/components/profile/scan-modal";
 
 import { getUserGenerations } from "@/app/actions/gallery";
 import { PhotoDetailModal } from "@/components/archive/photo-detail-modal";
@@ -67,6 +68,7 @@ export function ProfileDashboard({ user, profile, stats }: ProfileDashboardProps
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [isDeleteOpen, setIsDeleteOpen] = useState(false);
     const [uploadStep, setUploadStep] = useState<'tutorial' | 'upload'>('tutorial');
+    const [isScanOpen, setIsScanOpen] = useState(false);
     // Version state to force avatar refresh
     const [avatarVersion, setAvatarVersion] = useState(Date.now());
 
@@ -112,20 +114,36 @@ export function ProfileDashboard({ user, profile, stats }: ProfileDashboardProps
                                 </Avatar>
 
                                 {/* Set Profile Image Button Overlay */}
-                                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover/avatar:opacity-100 transition-opacity duration-200">
+                                <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center opacity-0 group-hover/avatar:opacity-100 transition-opacity duration-200 gap-2">
                                     <Button
                                         size="sm"
                                         variant="secondary"
-                                        className="rounded-full text-xs bg-zinc-800/90 text-zinc-200 border border-zinc-600"
+                                        className="rounded-full text-xs bg-zinc-800/90 text-zinc-200 border border-zinc-600 w-32"
                                         onClick={() => setIsEditOpen(true)}
                                     >
-                                        Set Profile Image
+                                        Upload
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        className="rounded-full text-xs bg-blue-600/90 text-white border border-blue-500 hover:bg-blue-600 w-32"
+                                        onClick={() => setIsScanOpen(true)}
+                                    >
+                                        <ScanFace className="w-3 h-3 mr-1.5" />
+                                        Scan Face
                                     </Button>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
+
+                {/* Scan Modal */}
+                <ScanModal
+                    open={isScanOpen}
+                    onOpenChange={setIsScanOpen}
+                    userId={user.id}
+                />
 
                 {/* Modal for Face Upload */}
                 <Dialog

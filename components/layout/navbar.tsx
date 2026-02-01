@@ -61,6 +61,9 @@ export function Navbar({ user: initialUser }: NavbarProps) {
                     <Link href="/archive" className={getLinkClass("/archive")}>
                         My Archive
                     </Link>
+                    <Link href="/my-avatar" className={getLinkClass("/my-avatar")}>
+                        My Avatar
+                    </Link>
                     <Link href="/pricing" className={getLinkClass("/pricing")}>
                         Pricing
                     </Link>

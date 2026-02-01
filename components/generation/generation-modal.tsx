@@ -25,11 +25,20 @@ interface GenerationModalProps {
 
 const LOADING_MESSAGES = [
     "Setting up studio...",
-    "Polishing lenses...",
+    "Wiping lenses...",
+    "Calibrating lens...",
     "Adjusting lighting...",
+    "Preparing cameras...",
+    "Checking focus...",
+    "Syncing sensors...",
+    "Loading film...",
     "Capturing subject...",
+    "Composing shot...",
+    "Analyzing features...",
     "Developing film...",
-    "Applying magic..."
+    "Rendering pixels...",
+    "Applying magic...",
+    "Finalizing details..."
 ];
 
 export function GenerationModal({ open, onOpenChange, pin, user, userAvatar }: GenerationModalProps) {
@@ -67,7 +76,7 @@ export function GenerationModal({ open, onOpenChange, pin, user, userAvatar }: G
                 if (messageIndex < LOADING_MESSAGES.length) {
                     setLoadingMessage(LOADING_MESSAGES[messageIndex]);
                 }
-            }, 800);
+            }, 2000);
 
             return () => clearInterval(interval);
         }
