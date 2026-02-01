@@ -35,7 +35,7 @@ async function main() {
             try {
                 JSON.parse(s.prompt);
                 console.log("Valid JSON string");
-            } catch (e) {
+            } catch (e: any) {
                 console.log("Invalid JSON string:", e.message);
                 console.log("Content slice:", s.prompt.slice(0, 50));
             }
