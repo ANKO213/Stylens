@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FaceCaptureModule, FrameStats, TargetZone, Pose } from "@/lib/face-capture-module";
 import { updateSessionStatus, getCaptureUploadUrl } from "@/app/actions/capture-session";
 import { Loader2, Camera, CheckCircle, ArrowRight, ArrowLeft } from "lucide-react";
@@ -11,13 +11,11 @@ interface SmartCameraProps {
     sessionId: string;
 }
 
-// Visual configuration for the 5 zones
+// SIMPLIFIED: Only 3 zones
 const ZONES: { id: TargetZone; label: string; angle: number }[] = [
-    { id: 'left-profile', label: 'Left Profile', angle: 60 },
-    { id: 'left-30', label: 'Left 3/4', angle: 30 },
+    { id: 'left', label: 'Left Side', angle: 30 },
     { id: 'center', label: 'Front', angle: 0 },
-    { id: 'right-30', label: 'Right 3/4', angle: -30 },
-    { id: 'right-profile', label: 'Right Profile', angle: -60 },
+    { id: 'right', label: 'Right Side', angle: -30 },
 ];
 
 export function SmartCamera({ sessionId }: SmartCameraProps) {
@@ -27,24 +25,25 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
 
     const [status, setStatus] = useState<string>("Initializing...");
     const [qualityScore, setQualityScore] = useState(0);
-    const [isCapturing, setIsCapturing] = useState(false);
     const [finished, setFinished] = useState(false);
     const [initializationError, setInitializationError] = useState<string | null>(null);
 
     // Multi-Angle State
     const [currentZone, setCurrentZone] = useState<TargetZone | null>(null);
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const [pose, setPose] = useState<Pose>({ yaw: 0, pitch: 0, roll: 0 });
     const [stability, setStability] = useState(0);
     const [capturedZones, setCapturedZones] = useState<Set<TargetZone>>(new Set());
     const [captures, setCaptures] = useState<Map<TargetZone, Blob>>(new Map());
+
+    // Refs for safe callback access
+    const capturedZonesRef = useRef<Set<TargetZone>>(new Set());
+    const isCapturingRef = useRef(false);
+    const onFrameRef = useRef<((stats: FrameStats) => void) | undefined>(undefined);
 
     // Initialize Camera
     useEffect(() => {
         let active = true;
 
         const init = async () => {
-            // Notify desktop we are here
             await updateSessionStatus(sessionId, 'scanning');
 
             if (videoRef.current) {
@@ -58,7 +57,6 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                         );
                     }
 
-                    // Request 4K/High Res
                     const stream = await navigator.mediaDevices.getUserMedia({
                         video: {
                             facingMode: "user",
@@ -87,18 +85,8 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                         const mod = new FaceCaptureModule(videoRef.current, canvasRef.current);
                         moduleRef.current = mod;
 
-                        mod.onFrameProcessed = (stats: FrameStats) => {
-                            if (!active) return;
-                            setStatus(stats.message);
-                            setQualityScore(stats.score);
-                            setCurrentZone(stats.currentZone);
-                            setPose(stats.pose);
-                            setStability(stats.progress);
-
-                            // Auto-Capture Hook
-                            if (stats.isStable && stats.currentZone && stats.score > 0.8) {
-                                autoCapture(stats.currentZone);
-                            }
+                        mod.onFrameProcessed = (stats) => {
+                            onFrameRef.current?.(stats);
                         };
 
                         await mod.start(true);
@@ -120,26 +108,37 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
         };
     }, [sessionId]);
 
-    const autoCapture = async (zone: TargetZone) => {
-        // Debounce / Check if already captured
-        // We need to access the LATEST capturedZones. Use ref or functional update check?
-        // Functional update isn't enough inside the closure unless we use a Ref.
-        // Actually, onFrameProcessed captures state from init.
-        // We need a Ref for claimed statuses to avoid closure staleness.
-    };
+    // Frame Callback
+    useEffect(() => {
+        onFrameRef.current = (stats: FrameStats) => {
+            setStatus(stats.message);
+            setQualityScore(stats.score);
+            setCurrentZone(stats.currentZone);
+            setStability(stats.progress);
 
-    // Fix for closure staleness in onFrameProcessed:
-    // We should use a Ref to track captured zones for the callback
-    const capturedZonesRef = useRef<Set<TargetZone>>(new Set());
+            // Auto-Capture Logic
+            if (stats.isStable && stats.currentZone && stats.score > 0.8) {
+                if (!capturedZonesRef.current.has(stats.currentZone) && !isCapturingRef.current) {
+                    autoCaptureReal(stats.currentZone, stats.scaleFactor);
+                }
+            }
+        };
+    });
 
-    const autoCaptureReal = async (zone: TargetZone) => {
-        if (capturedZonesRef.current.has(zone) || isCapturing) return;
+    const autoCaptureReal = async (zone: TargetZone, currentScale: number) => {
+        if (capturedZonesRef.current.has(zone) || isCapturingRef.current) return;
 
-        // Optimistic Lock
-        capturedZonesRef.current.add(zone); // Add to ref immediately
-        setCapturedZones(new Set(capturedZonesRef.current)); // Update UI
+        // Optimistic Update
+        capturedZonesRef.current.add(zone);
+        setCapturedZones(new Set(capturedZonesRef.current));
 
-        toast.success(`Captured ${zone.replace('-', ' ')}!`);
+        toast.success(`Captured ${zone.toUpperCase()}!`);
+
+        // ZOOM LOCK LOGIC:
+        // If we just captured Center, LOCK the scale for subsequent side shots.
+        if (zone === 'center' && moduleRef.current) {
+            moduleRef.current.lockScale(currentScale);
+        }
 
         if (moduleRef.current) {
             try {
@@ -155,62 +154,20 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
         }
     };
 
-    // We need to fix the effect hook to use the 'autoCaptureReal' which is stable?
-    // actually 'autoCaptureReal' changes if it uses isCapturing state.
-    // Let's use a Ref for isCapturing too.
-    const isCapturingRef = useRef(false);
-
-    // Re-bind the callback if dependencies change? No, mod.onFrameProcessed is set once.
-    // Better: Make the callback call a stable function or use refs entirely inside it.
-
-    // We update the callback ref pattern
-    const onFrameRef = useRef<((stats: FrameStats) => void) | undefined>(undefined);
-
-    useEffect(() => {
-        onFrameRef.current = (stats: FrameStats) => {
-            setStatus(stats.message);
-            setQualityScore(stats.score);
-            setCurrentZone(stats.currentZone);
-            setPose(stats.pose);
-            setStability(stats.progress);
-
-            if (stats.isStable && stats.currentZone && stats.score > 0.8) {
-                if (!capturedZonesRef.current.has(stats.currentZone) && !isCapturingRef.current) {
-                    autoCaptureReal(stats.currentZone);
-                }
-            }
-        };
-    });
-
-    // Update the module callback to call current ref
-    useEffect(() => {
-        if (moduleRef.current) {
-            moduleRef.current.onFrameProcessed = (stats) => {
-                onFrameRef.current?.(stats);
-            };
-        }
-    }, [moduleRef.current]);
-
-
-    // Refined 'handleFinish'
     const handleFinish = async () => {
         if (captures.size === 0 || isCapturingRef.current) return;
-        setIsCapturing(true);
         isCapturingRef.current = true;
 
         try {
             const uploadedKeys: Record<string, string> = {};
 
-            // Upload all blobs
             for (const [zone, blob] of Array.from(captures.entries())) {
                 const { url, key } = await getCaptureUploadUrl(sessionId);
-
                 await fetch(url, {
                     method: "PUT",
                     body: blob,
                     headers: { "Content-Type": "image/png" }
                 });
-
                 uploadedKeys[zone] = key;
             }
 
@@ -218,12 +175,11 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
             await updateSessionStatus(sessionId, 'captured', mainKey);
 
             setFinished(true);
-            toast.success("All photos uploaded!");
+            toast.success("Ready!");
 
         } catch (e) {
             console.error(e);
             toast.error("Upload failed");
-            setIsCapturing(false);
             isCapturingRef.current = false;
         }
     };
@@ -262,17 +218,17 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
         );
     }
 
-    // Helper to determine active guide arrow
+    // Guidance Logic
     const centerDone = capturedZones.has('center');
-    const leftDone = capturedZones.has('left-30');
+    const leftDone = capturedZones.has('left');
 
-    // Logic: Center -> Left -> Right
+    // Order: Center -> Left -> Right (Arbitrary, user can choose)
+    // Actually, user can turn either way.
     const showLeftArrow = centerDone && !leftDone;
-    const showRightArrow = centerDone && leftDone && !capturedZones.has('right-30');
+    const showRightArrow = centerDone && !capturedZones.has('right');
 
     return (
         <div className="fixed inset-0 bg-black overflow-hidden flex flex-col">
-            {/* The Camera Feed */}
             <div className="flex-1 relative overflow-hidden flex items-center justify-center">
                 <video ref={videoRef} className="hidden" playsInline muted />
                 <div className="relative w-full h-full flex items-center justify-center">
@@ -281,20 +237,20 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
 
                 {/* --- HUD OVERLAYS --- */}
 
-                {/* 1. Zone Indicators (Top Arc) */}
-                <div className="absolute top-20 left-0 right-0 flex justify-center gap-2 pointer-events-none z-10">
+                {/* 1. Zone Indicators (Top) */}
+                <div className="absolute top-8 left-0 right-0 flex justify-center gap-3 pointer-events-none z-10">
                     {ZONES.map((z) => {
                         const isCaptured = capturedZones.has(z.id);
                         const isCurrent = currentZone === z.id;
                         return (
                             <div key={z.id} className="flex flex-col items-center gap-1 transition-all duration-300">
                                 <div className={cn(
-                                    "w-3 h-3 rounded-full transition-all duration-300 border border-black/20",
-                                    isCaptured ? "bg-green-500 scale-110" :
-                                        isCurrent ? "bg-white scale-125 shadow-glow" : "bg-white/20"
+                                    "w-2 h-2 rounded-full transition-all duration-300",
+                                    isCaptured ? "bg-green-500 scale-125" :
+                                        isCurrent ? "bg-white scale-150 shadow-glow" : "bg-white/30"
                                 )} />
                                 {isCurrent && (
-                                    <span className="text-[10px] font-bold text-white uppercase tracking-wider bg-black/50 px-2 py-0.5 rounded-full absolute top-5 whitespace-nowrap">
+                                    <span className="text-[10px] font-bold text-white uppercase tracking-wider bg-black/40 backdrop-blur-md px-2 py-0.5 rounded-full absolute top-4 whitespace-nowrap">
                                         {z.label}
                                     </span>
                                 )}
@@ -303,42 +259,44 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                     })}
                 </div>
 
-                {/* 2. Progress Ring (Center) */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    {/* Base Circle */}
-                    <svg className="w-[80vw] h-[80vw] max-w-[400px] max-h-[400px] opacity-20" viewBox="0 0 100 100">
-                        <circle cx="50" cy="50" r="48" fill="none" stroke="white" strokeWidth="1" strokeDasharray="4 4" />
-                    </svg>
-
-                    {/* Active Zone Stability Arc */}
-                    <svg className="w-[80vw] h-[80vw] max-w-[400px] max-h-[400px] rotate-[-90deg] transition-all duration-200" viewBox="0 0 100 100">
-                        <circle
-                            cx="50" cy="50" r="48"
-                            fill="none"
-                            stroke={stability >= 100 ? "#22c55e" : "#3b82f6"}
-                            strokeWidth="3"
-                            strokeDasharray={`${stability * 3.01} 301`}
-                            strokeLinecap="round"
-                            className="transition-all duration-200 ease-linear"
-                        />
-                    </svg>
-                </div>
-
-                {/* 3. Turn Guidance Arrows */}
+                {/* 2. Turn Guidance Arrows */}
                 <div className="absolute inset-x-8 top-1/2 -translate-y-1/2 flex justify-between pointer-events-none opacity-60">
-                    <ArrowLeft className={cn("w-12 h-12 text-white animate-pulse", showLeftArrow ? "opacity-100" : "opacity-0")} />
-                    <ArrowRight className={cn("w-12 h-12 text-white animate-pulse", showRightArrow ? "opacity-100" : "opacity-0")} />
+                    <ArrowLeft className={cn("w-12 h-12 text-white animate-pulse drop-shadow-lg", showLeftArrow ? "opacity-100" : "opacity-0")} />
+                    <ArrowRight className={cn("w-12 h-12 text-white animate-pulse drop-shadow-lg", showRightArrow ? "opacity-100" : "opacity-0")} />
                 </div>
 
-                {/* Status Badge */}
+                {/* 3. Status Badge with Small Ring (Bottom) */}
                 <div className="absolute bottom-10 left-0 right-0 flex justify-center pointer-events-none z-10">
                     <div className={cn(
-                        "px-6 py-3 rounded-full backdrop-blur-md font-medium text-sm transition-colors shadow-xl border border-white/10 flex items-center gap-2",
-                        qualityScore > 0.8 || stability > 0 ? "bg-black/60 text-white" : "bg-red-500/80 text-white"
+                        "pl-2 pr-6 py-2 rounded-full backdrop-blur-md font-medium text-sm transition-colors shadow-xl border border-white/10 flex items-center gap-3",
+                        qualityScore > 0.8 || stability > 0 ? "bg-black/80 text-white" : "bg-red-500/80 text-white"
                     )}>
-                        {stability > 0 && stability < 100 && <Loader2 className="w-4 h-4 animate-spin text-blue-400" />}
-                        {status}
-                        {stability >= 100 && <span className="text-green-400 ml-1">✓</span>}
+                        {/* Small Progress Ring */}
+                        <div className="relative w-8 h-8 flex items-center justify-center">
+                            {/* Background Track */}
+                            <svg className="w-full h-full rotate-[-90deg]" viewBox="0 0 36 36">
+                                <path
+                                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                    fill="none"
+                                    stroke="rgba(255, 255, 255, 0.2)"
+                                    strokeWidth="3"
+                                />
+                                <path
+                                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                    fill="none"
+                                    stroke={stability >= 100 ? "#22c55e" : "#3b82f6"}
+                                    strokeWidth="3"
+                                    strokeDasharray={`${stability}, 100`}
+                                    className="transition-all duration-100 ease-linear"
+                                />
+                            </svg>
+                            {/* Inner Icon */}
+                            <div className="absolute inset-0 flex items-center justify-center text-[10px]">
+                                {stability >= 100 && <CheckCircle className="w-4 h-4 text-green-500 fill-current" />}
+                            </div>
+                        </div>
+
+                        <span className="min-w-[80px] text-center">{status}</span>
                     </div>
                 </div>
             </div>
@@ -346,13 +304,12 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
             {/* Controls */}
             <div className="h-32 bg-zinc-950 p-6 flex items-center justify-between relative z-20 border-t border-zinc-900">
                 <div className="text-xs text-zinc-500 max-w-[120px]">
-                    {captures.size} / 5 angles captured
+                    {captures.size} / 3 angles
                 </div>
 
-                {/* Manual Trigger / Finish Button */}
                 <button
                     onClick={handleFinish}
-                    disabled={isCapturing || captures.size < 1}
+                    disabled={captures.size < 1}
                     className={cn(
                         "px-8 py-3 rounded-full font-bold text-sm transition-all flex items-center gap-2",
                         captures.size >= 1
@@ -360,7 +317,7 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                             : "bg-zinc-800 text-zinc-500 cursor-not-allowed"
                     )}
                 >
-                    {isCapturing ? <Loader2 className="w-4 h-4 animate-spin" /> : "Finish"}
+                    Finish
                 </button>
             </div>
         </div>

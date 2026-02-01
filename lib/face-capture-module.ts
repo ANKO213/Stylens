@@ -11,7 +11,8 @@ declare global {
     }
 }
 
-export type TargetZone = 'center' | 'left-30' | 'right-30' | 'left-profile' | 'right-profile';
+// SIMPLIFIED: Only 3 major zones
+export type TargetZone = 'center' | 'left' | 'right';
 
 export interface Pose {
     yaw: number;   // -90 to 90
@@ -41,19 +42,22 @@ export class FaceCaptureModule {
     private scriptLoaded = false;
 
     // Config
-    // We want the face HEIGHT to occupy this ratio of the screen height
-    private targetFaceHeightRatio = 0.55;
+    // User requested 60% of screen height
+    private targetFaceHeightRatio = 0.60;
 
     // State for smoothing (Kalman-ish / Lerp)
     private currentScale = 1.0;
-    private currentCx = 0; // Smoothed Face Center X
-    private currentCy = 0; // Smoothed Face Center Y
+    private currentCx = 0;
+    private currentCy = 0;
 
     // Stability Tracking
     private lastZone: TargetZone | null = null;
     private zoneEnterTime: number = 0;
     private stabilityProgress: number = 0;
     private readonly STABILITY_THRESHOLD_MS = 600;
+
+    // Zoom Lock for Sides
+    private lockedScale: number | null = null;
 
     // Logic state
     public distance: number = 0;
@@ -132,6 +136,7 @@ export class FaceCaptureModule {
         this.currentScale = 1.0;
         this.stabilityProgress = 0;
         this.lastZone = null;
+        this.lockedScale = null;
 
         if (!streamAlreadyActive) {
             try {
@@ -195,14 +200,14 @@ export class FaceCaptureModule {
         this.video.srcObject = null;
     }
 
+    public lockScale(scale: number) {
+        this.lockedScale = scale;
+    }
+
     // --- MATH HELPERS ---
 
     private calculatePose(landmarks: any[], width: number, height: number): Pose {
         // Geometric approximation of Euler angles
-        // Yaw: Ratio of NoseX between LeftEarX and RightEarX
-        // Pitch: NoseY relative to EyeY/MouthY (or EarY)
-        // Roll: Angle of Eye Line
-
         const nose = landmarks[1]; // Tip of nose
         const leftEar = landmarks[234];
         const rightEar = landmarks[454];
@@ -213,29 +218,18 @@ export class FaceCaptureModule {
         const dy = (rightEye.y - leftEye.y) * height;
         const dx = (rightEye.x - leftEye.x) * width;
         const rollRad = Math.atan2(dy, dx);
-        const roll = rollRad * (180 / Math.PI); // Degrees
+        const roll = rollRad * (180 / Math.PI);
 
         // YAW
-        // Compare horizontal distances from nose to ears
-        // Note: Coordinates are normalized 0-1
-        const midEarX = (leftEar.x + rightEar.x) / 2;
-        const noseX = nose.x;
-        // The farther the nose is from the midpoint, the more rotation
-        // But we need to account for scale/foreshortening.
-        // Let's use Z-depth difference if available (MediaPipe FaceMesh provides estimated Z)
-        // yaw ~ constant * (leftEar.z - rightEar.z) / faceWidth
-        // This is usually more robust than X-ratio for MP FaceMesh
+        // Use Z-depth difference for robustness
         const zDiff = (leftEar.z - rightEar.z);
-        // Empirical multiplier
-        const yaw = zDiff * 140; // Tunable constant
+        // Tunable constant
+        const yaw = zDiff * 140;
 
         // PITCH
-        // Nose Y position relative to Ear Y line
         const midEarY = (leftEar.y + rightEar.y) / 2;
         const noseY = nose.y;
         const pitchDiff = (midEarY - noseY);
-        // If nose is higher than ears (smaller Y), looking UP.
-        // If nose is lower than ears (larger Y), looking DOWN.
         const pitch = pitchDiff * 140;
 
         return { yaw, pitch, roll };
@@ -243,25 +237,18 @@ export class FaceCaptureModule {
 
     private determineZone(pose: Pose): TargetZone | null {
         const { yaw } = pose;
-        const tolerance = 15;
 
         // Center: 0 +/- 15
         if (Math.abs(yaw) < 15) return 'center';
 
-        // Left: Positive Yaw (User turns head Left, nose moves Left? Wait.
-        // If I turn left, my left ear goes back, right ear comes forward.
-        // leftEar.z (bigger/pos) - rightEar.z (smaller/neg)?
-        // MP Z is negative in front of canvas?
-        // Let's rely on visual calibration.
-        // Assuming Positive Yaw = Turn Left (Standard)
+        // Simplified Side Logic
+        // Left Turn: Positive Yaw (Nose moves left relative to ears)
+        // Right Turn: Negative Yaw
 
-        if (yaw > 20 && yaw < 45) return 'left-30';
-        if (yaw < -20 && yaw > -45) return 'right-30';
+        if (yaw >= 25) return 'left';
+        if (yaw <= -25) return 'right';
 
-        if (yaw >= 50) return 'left-profile';
-        if (yaw <= -50) return 'right-profile';
-
-        return null; // Transition or undefined
+        return null;
     }
 
     private onResults(results: Results) {
@@ -287,39 +274,43 @@ export class FaceCaptureModule {
             pose = this.calculatePose(landmarks, width, height);
             currentZone = this.determineZone(pose);
 
-            // 2. Calculate Face Height (Invariant Scale)
-            // Top: 10, Bottom: 152
-            const top = landmarks[10];
-            const bottom = landmarks[152];
-            const hDx = (top.x - bottom.x) * width;
-            const hDy = (top.y - bottom.y) * height;
-            const faceHeightPx = Math.sqrt(hDx * hDx + hDy * hDy);
+            // 2. Calculate Scale
+            // If LOCKED (for side views), use that. Else calculate.
+            if (this.lockedScale && currentZone !== 'center') {
+                targetScale = this.lockedScale;
+            } else {
+                // Height-based Scaling (Forehead to Chin)
+                const top = landmarks[10];
+                const bottom = landmarks[152];
+                const hDx = (top.x - bottom.x) * width;
+                const hDy = (top.y - bottom.y) * height;
+                const faceHeightPx = Math.sqrt(hDx * hDx + hDy * hDy);
 
-            // Goal: faceHeight = canvasHeight * Ratio
-            const desiredHeightPx = height * this.targetFaceHeightRatio;
-            targetScale = desiredHeightPx / (faceHeightPx + 1);
-            // Clamp scale
-            targetScale = Math.max(1.0, Math.min(targetScale, 5.0));
+                const desiredHeightPx = height * this.targetFaceHeightRatio;
+                targetScale = desiredHeightPx / (faceHeightPx + 1);
+                // Clamp scale reasonably (1.0 to 4.0)
+                targetScale = Math.max(1.0, Math.min(targetScale, 4.0));
+            }
 
-            // 3. Face Center (Nose Bridge - Landmark 6)
+            // 3. Face Center (Nose Bridge)
             const nose = landmarks[6];
             targetCx = nose.x * width;
             targetCy = nose.y * height;
 
-            // 4. Distance (Iris) - For user feedback mainly
+            // 4. Distance Logic (Iris)
             const lIris = landmarks[468];
             const rIris = landmarks[473];
             const irisDx = rIris.x - lIris.x;
             const irisDy = rIris.y - lIris.y;
             const irisDist = Math.sqrt(irisDx * irisDx + irisDy * irisDy);
-            const approxDist = 4.0 / (irisDist + 0.001); // Heuristic
+            const approxDist = 4.0 / (irisDist + 0.001);
             this.distance = Math.round(approxDist);
 
             if (this.distance < 50) message = "Too close!";
             else if (this.distance > 90) message = "Too far!";
             else message = this.faceFound ? "Hold steady" : "Look at camera";
 
-            score = 0.9; // Base score for detecting face
+            score = 0.9;
 
             // 5. Stability Logic
             const now = performance.now();
@@ -341,7 +332,7 @@ export class FaceCaptureModule {
             message = "No face";
         }
 
-        // 6. Smoothing (Lerp)
+        // 6. Smoothing
         const alpha = 0.15;
         this.currentScale = this.currentScale * (1 - alpha) + targetScale * alpha;
         this.currentCx = this.currentCx * (1 - alpha) + targetCx * alpha;
@@ -349,21 +340,11 @@ export class FaceCaptureModule {
 
         // 7. Draw
         this.ctx.save();
-        this.ctx.translate(width / 2, height / 2); // To Center
-        this.ctx.scale(-this.currentScale, this.currentScale); // Mirror & Zoom
-        this.ctx.translate(-this.currentCx, -this.currentCy); // To Face
+        this.ctx.translate(width / 2, height / 2);
+        this.ctx.scale(-this.currentScale, this.currentScale);
+        this.ctx.translate(-this.currentCx, -this.currentCy);
 
         this.ctx.drawImage(results.image, 0, 0, width, height);
-
-        // Optional: Debug landmarks (Only visible if we want)
-        // if (this.faceFound) {
-        //      const nose = results.multiFaceLandmarks[0][6];
-        //      this.ctx.fillStyle = "rgba(0,255,255,0.5)";
-        //      this.ctx.beginPath();
-        //      this.ctx.arc(nose.x * width, nose.y * height, 5 / this.currentScale, 0, 2 * Math.PI);
-        //      this.ctx.fill();
-        // }
-
         this.ctx.restore();
 
         // 8. Callbacks
@@ -372,7 +353,7 @@ export class FaceCaptureModule {
                 distance: this.distance,
                 faceFound: this.faceFound,
                 message,
-                scaleFactor: this.currentScale,
+                scaleFactor: this.currentScale, // Return current smoothed scale
                 score,
                 pose,
                 currentZone,
