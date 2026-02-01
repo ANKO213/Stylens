@@ -29,6 +29,7 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
 
     // UI State
     const [isBursting, setIsBursting] = useState(false);
+    const [isUploading, setIsUploading] = useState(false); // New state for full screen loader
     const [initializationError, setInitializationError] = useState<string | null>(null);
 
     // UX State
@@ -124,12 +125,19 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
 
             // Auto-Capture Logic
             if (stats.isStable && stats.currentZone && stats.score > 0.8) {
-                if (!capturedZonesRef.current.has(stats.currentZone) && !isCapturingRef.current) {
+                if (!capturedZonesRef.current.has(stats.currentZone) && !isCapturingRef.current && !isUploading) {
                     autoCaptureReal(stats.currentZone, stats.scaleFactor);
                 }
             }
         };
     });
+
+    // AUTO-FINISH TRIGGER
+    useEffect(() => {
+        if (capturedZones.size === 3 && !finished && !isUploading) {
+            handleFinish();
+        }
+    }, [capturedZones, finished, isUploading]);
 
     const getPrimaryState = () => {
         if (!capturedZones.has('center')) return 'center';
@@ -147,9 +155,6 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
         // Lock UI
         isCapturingRef.current = true; // Block triggers
 
-        // Optimistic Update? No, wait for burst success.
-        // But show loading?
-        // Using toast loading?
         const toastId = toast.loading("Enhancing photo...");
 
         // ZOOM LOCK LOGIC
@@ -179,7 +184,6 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                 } else {
                     toast.error("Capture failed, try again.", { id: toastId });
                 }
-                // Unlock
             }
         }
 
@@ -188,8 +192,11 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
     };
 
     const handleFinish = async () => {
-        if (captures.size === 0 || isCapturingRef.current) return;
-        isCapturingRef.current = true;
+        if (captures.size === 0) return;
+        if (isUploading) return;
+
+        setIsUploading(true);
+        isCapturingRef.current = true; // Lock everything
 
         try {
             const uploadedKeys: Record<string, string> = {};
@@ -199,9 +206,14 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                 const fd = new FormData();
                 fd.append('file', blob, `${zone}.png`);
 
-                const res = await uploadCaptureImage(sessionId, zone, fd);
-                if (res && res.key) {
-                    uploadedKeys[zone] = res.key;
+                try {
+                    const res = await uploadCaptureImage(sessionId, zone, fd);
+                    if (res && res.key) {
+                        uploadedKeys[zone] = res.key;
+                    }
+                } catch (e) {
+                    console.error(`Upload error for ${zone}`, e);
+                    throw new Error(`Failed to upload ${zone} image`);
                 }
             }
 
@@ -211,9 +223,10 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
             setFinished(true);
             toast.success("Ready!");
 
-        } catch (e) {
+        } catch (e: any) {
             console.error(e);
-            toast.error("Upload failed");
+            toast.error(e.message || "Upload failed");
+            setIsUploading(false);
             isCapturingRef.current = false;
         }
     };
@@ -264,7 +277,9 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                     <canvas ref={canvasRef} className="object-cover h-full w-full" />
                 </div>
 
-                {/* --- BURSTING OVERLAY --- */}
+                {/* --- LOADING OVERLAYS --- */}
+
+                {/* 1. Burst Processing */}
                 {isBursting && (
                     <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm">
                         <Loader2 className="w-12 h-12 text-white animate-spin mb-4" />
@@ -272,8 +287,18 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                     </div>
                 )}
 
+                {/* 2. Uploading */}
+                {isUploading && (
+                    <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md">
+                        <Loader2 className="w-16 h-16 text-green-500 animate-spin mb-4" />
+                        <span className="text-white font-bold tracking-widest uppercase text-lg">Uploading High-Res...</span>
+                        <span className="text-white/50 text-xs mt-2">Do not close browser</span>
+                    </div>
+                )}
+
+
                 {/* --- CENTER GUIDANCE TEXT --- */}
-                {guideState === 'left' && !isBursting && (
+                {guideState === 'left' && !isBursting && !isUploading && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-80">
                         <div className="flex flex-col items-center animate-pulse">
                             <ArrowLeft className="w-20 h-20 text-white/50 mb-4" />
@@ -281,7 +306,7 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                         </div>
                     </div>
                 )}
-                {guideState === 'right' && !isBursting && (
+                {guideState === 'right' && !isBursting && !isUploading && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-80">
                         <div className="flex flex-col items-center animate-pulse">
                             <ArrowRight className="w-20 h-20 text-white/50 mb-4" />
@@ -291,51 +316,54 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                 )}
 
                 {/* --- HUD --- */}
+                {!isUploading && (
+                    <>
+                        {/* 1. Zone Indicators (Top) */}
+                        <div className="absolute top-8 left-0 right-0 flex justify-center gap-3 pointer-events-none z-10">
+                            {ZONES.map((z) => {
+                                const isCaptured = capturedZones.has(z.id);
+                                const isCurrent = guideState === z.id;
+                                return (
+                                    <div key={z.id} className="flex flex-col items-center gap-1 transition-all duration-300">
+                                        <div className={cn(
+                                            "w-3 h-3 rounded-full transition-all duration-300",
+                                            isCaptured ? "bg-green-500 scale-125" :
+                                                isCurrent ? "bg-white scale-150 shadow-glow animate-pulse" : "bg-white/30"
+                                        )} />
+                                    </div>
+                                );
+                            })}
+                        </div>
 
-                {/* 1. Zone Indicators (Top) */}
-                <div className="absolute top-8 left-0 right-0 flex justify-center gap-3 pointer-events-none z-10">
-                    {ZONES.map((z) => {
-                        const isCaptured = capturedZones.has(z.id);
-                        const isCurrent = guideState === z.id;
-                        return (
-                            <div key={z.id} className="flex flex-col items-center gap-1 transition-all duration-300">
-                                <div className={cn(
-                                    "w-3 h-3 rounded-full transition-all duration-300",
-                                    isCaptured ? "bg-green-500 scale-125" :
-                                        isCurrent ? "bg-white scale-150 shadow-glow animate-pulse" : "bg-white/30"
-                                )} />
+                        {/* 2. DUAL-PHASE PROGRESS BAR (Bottom) */}
+                        <div className="absolute bottom-24 left-8 right-8 pointer-events-none z-10 flex flex-col items-center gap-2">
+                            <span className="text-white/80 font-medium text-sm tracking-wide shadow-black drop-shadow-md">
+                                {status}
+                            </span>
+
+                            <div className="w-full max-w-xs h-3 bg-zinc-800/80 backdrop-blur-md rounded-full overflow-hidden border border-white/10 relative">
+                                <div
+                                    className={cn("h-full transition-all duration-200 ease-out", progressColor)}
+                                    style={{ width: `${Math.max(5, progressValue)}%` }}
+                                ></div>
                             </div>
-                        );
-                    })}
-                </div>
 
-                {/* 2. DUAL-PHASE PROGRESS BAR (Bottom) */}
-                <div className="absolute bottom-24 left-8 right-8 pointer-events-none z-10 flex flex-col items-center gap-2">
-                    <span className="text-white/80 font-medium text-sm tracking-wide shadow-black drop-shadow-md">
-                        {status}
-                    </span>
+                            <div className="flex justify-between w-full max-w-xs text-[10px] text-zinc-500 font-medium uppercase tracking-wider">
+                                <span>Distance</span>
+                                <span>Hold</span>
+                            </div>
+                        </div>
 
-                    <div className="w-full max-w-xs h-3 bg-zinc-800/80 backdrop-blur-md rounded-full overflow-hidden border border-white/10 relative">
-                        <div
-                            className={cn("h-full transition-all duration-200 ease-out", progressColor)}
-                            style={{ width: `${Math.max(5, progressValue)}%` }}
-                        ></div>
-                    </div>
-
-                    <div className="flex justify-between w-full max-w-xs text-[10px] text-zinc-500 font-medium uppercase tracking-wider">
-                        <span>Distance</span>
-                        <span>Hold</span>
-                    </div>
-                </div>
-
-                {/* 3. Controls (Finish Early) */}
-                <div className="absolute bottom-8 left-0 right-0 flex justify-center z-20">
-                    {captures.size >= 1 && (
-                        <button onClick={handleFinish} className="text-xs text-zinc-400 hover:text-white underline">
-                            Finish Early
-                        </button>
-                    )}
-                </div>
+                        {/* 3. Controls (Finish Early) */}
+                        <div className="absolute bottom-8 left-0 right-0 flex justify-center z-20">
+                            {captures.size >= 1 && (
+                                <button onClick={() => handleFinish()} className="text-xs text-zinc-400 hover:text-white underline">
+                                    Finish Early
+                                </button>
+                            )}
+                        </div>
+                    </>
+                )}
             </div>
         </div>
     );
