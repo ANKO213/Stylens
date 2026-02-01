@@ -311,30 +311,13 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                     </div>
                 </div>
 
-                {/* 3. Manual Shutter Button (Important Upgrade) */}
-                {/* Always visible if not finished, allows forcing the current guide step */}
-                <div className="absolute bottom-8 left-0 right-0 flex justify-center z-20 gap-4 items-center px-6">
-
-                    {/* Secondary Finish Button (Small) */}
-                    <div>
-                        {captures.size >= 1 && (
-                            <button onClick={handleFinish} className="text-xs text-zinc-400 hover:text-white underline">
-                                Finish Early
-                            </button>
-                        )}
-                    </div>
-
-                    {/* MAIN SHUTTER */}
-                    <button
-                        onClick={handleManualCapture}
-                        className="w-16 h-16 rounded-full border-4 border-white bg-white/10 hover:bg-white/30 backdrop-blur-sm active:scale-95 transition-all flex items-center justify-center"
-                        aria-label="Manual Capture"
-                    >
-                        <div className="w-14 h-14 rounded-full bg-white/90" />
-                    </button>
-
-                    {/* Spacer for symmetry */}
-                    <div className="w-10"></div>
+                {/* 3. Controls */}
+                <div className="absolute bottom-8 left-0 right-0 flex justify-center z-20">
+                    {captures.size >= 1 && (
+                        <button onClick={handleFinish} className="text-xs text-zinc-400 hover:text-white underline">
+                            Finish Early
+                        </button>
+                    )}
                 </div>
             </div>
         </div>
