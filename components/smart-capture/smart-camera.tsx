@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { FaceCaptureModule, FrameStats, TargetZone, Pose } from "@/lib/face-capture-module";
 import { updateSessionStatus, uploadCaptureImage } from "@/app/actions/capture-session";
-import { Loader2, Camera, CheckCircle, ArrowRight, ArrowLeft } from "lucide-react";
+import { Loader2, Camera, CheckCircle, ArrowRight, ArrowLeft, Sun } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -26,7 +26,9 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
     const [status, setStatus] = useState<string>("Initializing...");
     const [qualityScore, setQualityScore] = useState(0);
     const [finished, setFinished] = useState(false);
-    const [isCapturing, setIsCapturing] = useState(false);
+
+    // UI State
+    const [isBursting, setIsBursting] = useState(false);
     const [initializationError, setInitializationError] = useState<string | null>(null);
 
     // UX State
@@ -118,9 +120,9 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
             setCurrentZone(stats.currentZone);
             setStability(stats.progress);
             setDistanceProgress(stats.distanceProgress);
+            setIsBursting(!!stats.isBursting); // Sync burst state from module
 
             // Auto-Capture Logic
-            // If stable, in zone, and valid distance
             if (stats.isStable && stats.currentZone && stats.score > 0.8) {
                 if (!capturedZonesRef.current.has(stats.currentZone) && !isCapturingRef.current) {
                     autoCaptureReal(stats.currentZone, stats.scaleFactor);
@@ -139,13 +141,16 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
     const guideState = getPrimaryState();
 
     const autoCaptureReal = async (zone: TargetZone, currentScale: number) => {
+        // Prevent double capture or capturing while bursting
         if (capturedZonesRef.current.has(zone) || isCapturingRef.current) return;
 
-        // Optimistic Update
-        capturedZonesRef.current.add(zone);
-        setCapturedZones(new Set(capturedZonesRef.current));
+        // Lock UI
+        isCapturingRef.current = true; // Block triggers
 
-        toast.success(`Captured ${zone.toUpperCase()}!`);
+        // Optimistic Update? No, wait for burst success.
+        // But show loading?
+        // Using toast loading?
+        const toastId = toast.loading("Enhancing photo...");
 
         // ZOOM LOCK LOGIC
         if (zone === 'center' && moduleRef.current) {
@@ -154,45 +159,46 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
 
         if (moduleRef.current) {
             try {
-                const blob = await moduleRef.current.takePhoto();
+                // Use BURST Capture
+                const blob = await moduleRef.current.takeBurstPhoto();
+
                 if (blob) {
                     setCaptures(prev => new Map(prev).set(zone, blob));
+
+                    // Mark as captured only on success
+                    capturedZonesRef.current.add(zone);
+                    setCapturedZones(new Set(capturedZonesRef.current));
+
+                    toast.success(`Captured ${zone.toUpperCase()}!`, { id: toastId });
                 }
-            } catch (e) {
+            } catch (e: any) {
                 console.error("Capture failed", e);
-                capturedZonesRef.current.delete(zone);
-                setCapturedZones(new Set(capturedZonesRef.current));
+                // Handle specific errors (Low Light)
+                if (e.message.includes("Low light")) {
+                    toast.error("Too Dark! Increase brightness.", { id: toastId });
+                } else {
+                    toast.error("Capture failed, try again.", { id: toastId });
+                }
+                // Unlock
             }
         }
-    };
 
-    const handleManualCapture = () => {
-        // Force capture of current 'guideState' zone
-        if (isCapturingRef.current || !moduleRef.current) return;
-        if (guideState === 'done') return;
-
-        // We use current scale from module? We don't have it easily here without stats.
-        // But autoCaptureReal uses it for locking.
-        // If we force capture, we might assume scale is okay or just use whatever.
-        // Actually, we pass 1.0 if we don't know, it will just re-lock if center.
-
-        autoCaptureReal(guideState, 1.0);
+        // Always unlock
+        isCapturingRef.current = false;
     };
 
     const handleFinish = async () => {
         if (captures.size === 0 || isCapturingRef.current) return;
-        setIsCapturing(true);
         isCapturingRef.current = true;
 
         try {
             const uploadedKeys: Record<string, string> = {};
 
-            // Upload using Server Action (FormData)
+            // Upload using Server Action
             for (const [zone, blob] of Array.from(captures.entries())) {
                 const fd = new FormData();
                 fd.append('file', blob, `${zone}.png`);
 
-                // Call Server Action
                 const res = await uploadCaptureImage(sessionId, zone, fd);
                 if (res && res.key) {
                     uploadedKeys[zone] = res.key;
@@ -208,7 +214,6 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
         } catch (e) {
             console.error(e);
             toast.error("Upload failed");
-            setIsCapturing(false);
             isCapturingRef.current = false;
         }
     };
@@ -220,11 +225,15 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
     if (initializationError) {
         return (
             <div className="fixed inset-0 bg-black flex flex-col items-center justify-center text-white p-8 text-center space-y-6">
-                {/* Error View */}
                 <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-2">
                     <Camera className="w-8 h-8 text-red-500" />
                 </div>
-                {/* ... */}
+                <div>
+                    <h2 className="text-2xl font-bold mb-2 text-red-400">Camera Access Blocked</h2>
+                    <p className="text-zinc-400 max-w-sm mx-auto text-sm leading-relaxed mb-4">
+                        {initializationError}
+                    </p>
+                </div>
                 <button
                     onClick={() => window.location.reload()}
                     className="px-6 py-3 bg-white text-black rounded-full font-bold text-sm"
@@ -255,8 +264,16 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                     <canvas ref={canvasRef} className="object-cover h-full w-full" />
                 </div>
 
+                {/* --- BURSTING OVERLAY --- */}
+                {isBursting && (
+                    <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm">
+                        <Loader2 className="w-12 h-12 text-white animate-spin mb-4" />
+                        <span className="text-white font-bold tracking-widest uppercase text-sm">Enhancing...</span>
+                    </div>
+                )}
+
                 {/* --- CENTER GUIDANCE TEXT --- */}
-                {guideState === 'left' && (
+                {guideState === 'left' && !isBursting && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-80">
                         <div className="flex flex-col items-center animate-pulse">
                             <ArrowLeft className="w-20 h-20 text-white/50 mb-4" />
@@ -264,7 +281,7 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                         </div>
                     </div>
                 )}
-                {guideState === 'right' && (
+                {guideState === 'right' && !isBursting && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-80">
                         <div className="flex flex-col items-center animate-pulse">
                             <ArrowRight className="w-20 h-20 text-white/50 mb-4" />
@@ -293,7 +310,7 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                 </div>
 
                 {/* 2. DUAL-PHASE PROGRESS BAR (Bottom) */}
-                <div className="absolute bottom-32 left-8 right-8 pointer-events-none z-10 flex flex-col items-center gap-2">
+                <div className="absolute bottom-24 left-8 right-8 pointer-events-none z-10 flex flex-col items-center gap-2">
                     <span className="text-white/80 font-medium text-sm tracking-wide shadow-black drop-shadow-md">
                         {status}
                     </span>
@@ -311,7 +328,7 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                     </div>
                 </div>
 
-                {/* 3. Controls */}
+                {/* 3. Controls (Finish Early) */}
                 <div className="absolute bottom-8 left-0 right-0 flex justify-center z-20">
                     {captures.size >= 1 && (
                         <button onClick={handleFinish} className="text-xs text-zinc-400 hover:text-white underline">

@@ -2,6 +2,8 @@
 // ^ BROKEN in Next.js 16 / Turbopack due to missing exports.
 // We will load via CDN script injection.
 
+import { analyzeLight, calculateSharpness, stackFrames, imageDataToBlob } from "./image-processing";
+
 type Results = any;
 type FaceMesh = any;
 
@@ -31,6 +33,7 @@ export interface FrameStats {
     isStable: boolean;
     progress: number; // 0 to 100
     distanceProgress: number; // 0 to 1 (new)
+    isBursting?: boolean; // UI State
 }
 
 export class FaceCaptureModule {
@@ -59,6 +62,9 @@ export class FaceCaptureModule {
 
     // Zoom Lock for Sides
     private lockedScale: number | null = null;
+
+    // Burst State
+    private isBursting = false;
 
     // Logic state
     public distance: number = 0;
@@ -138,6 +144,7 @@ export class FaceCaptureModule {
         this.stabilityProgress = 0;
         this.lastZone = null;
         this.lockedScale = null;
+        this.isBursting = false;
 
         if (!streamAlreadyActive) {
             try {
@@ -183,8 +190,23 @@ export class FaceCaptureModule {
             this.ctx.fillText("Loading AI...", 50, 50);
         }
 
-        if (this.video.readyState >= 2 && this.faceMesh) {
+        if (this.video.readyState >= 2 && this.faceMesh && !this.isBursting) {
+            // Only create detection overhead if NOT bursting
+            // During burst, we pause detection updates to save CPU for frame capture?
+            // Actually, we need detection to run to keep 'faceFound' true?
+            // Let's run it.
             await this.faceMesh.send({ image: this.video });
+        } else if (this.isBursting) {
+            // If bursting, we might skip face mesh updates to prioritize frame capture speed
+            // But we still need to draw the video feed?
+            const { width, height } = this.canvas;
+            // We can just rely on the last known transform
+            this.ctx.save();
+            this.ctx.translate(width / 2, height / 2);
+            this.ctx.scale(-this.currentScale, this.currentScale);
+            this.ctx.translate(-this.currentCx, -this.currentCy);
+            this.ctx.drawImage(this.video, 0, 0, width, height);
+            this.ctx.restore();
         }
 
         this.animationFrameId = requestAnimationFrame(this.processFrame.bind(this));
@@ -204,6 +226,93 @@ export class FaceCaptureModule {
     public lockScale(scale: number) {
         this.lockedScale = scale;
     }
+
+    // --- SUPER-RESOLUTION BURST ---
+
+    public async takeBurstPhoto(): Promise<Blob> {
+        if (this.isBursting) throw new Error("Already capturing");
+        this.isBursting = true;
+
+        try {
+            // 1. Setup Capture
+            const frames: ImageData[] = [];
+            const MAX_FRAMES = 20;
+            const captureCanvas = new OffscreenCanvas(this.video.videoWidth, this.video.videoHeight);
+            const captureCtx = captureCanvas.getContext('2d');
+
+            if (!captureCtx) throw new Error("Failed to init offscreen canvas");
+
+            // 2. Continuous Capture Loop
+            // We want to capture as fast as possible.
+            // Using a tight loop with requestAnimationFrame or just setInterval?
+            // await delay betwen frames?
+
+            for (let i = 0; i < MAX_FRAMES; i++) {
+                // Draw current video frame to offscreen
+                captureCtx.drawImage(this.video, 0, 0);
+                const imageData = captureCtx.getImageData(0, 0, captureCanvas.width, captureCanvas.height);
+
+                // 3. Light Check (First Frame Only - Fail Fast)
+                if (i === 0) {
+                    const light = analyzeLight(imageData);
+                    if (light.isLowLight) {
+                        throw new Error("Low light detected. Increase brightness.");
+                    }
+                }
+
+                // 4. Sharpness Check
+                const sharpness = calculateSharpness(imageData);
+                // Threshold: Needs tuning. Typical variance for sharp 4K image > 50?
+                // Relative to what?
+                // Let's just collect all and sort by sharpness later or discard significantly blurry?
+                // For now, let's keep top 50% sharpest.
+
+                // Attach metadata to frame object locally (not ImageData)
+                // Just push to array with metadata
+                // @ts-ignore
+                imageData._sharpness = sharpness;
+                frames.push(imageData);
+
+                // Small delay to allow camera to update? 
+                // Video runs at 30/60fps. roughly 16ms or 33ms.
+                // If we run tighter than that, we get duplicate frames.
+                await new Promise(r => setTimeout(r, 33));
+            }
+
+            // 5. Select Best Frames
+            // Sort by sharpness descending
+            // @ts-ignore
+            frames.sort((a, b) => b._sharpness - a._sharpness);
+
+            // Keep top 10 frames (best 50%)
+            const bestFrames = frames.slice(0, 10);
+
+            // 6. Stack & Denoise
+            const stackedImageData = stackFrames(bestFrames);
+
+            // 7. Convert to Blob
+            this.isBursting = false;
+            return await imageDataToBlob(stackedImageData);
+
+        } catch (e) {
+            this.isBursting = false;
+            throw e;
+        }
+    }
+
+    // Fallback if burst fails or user wants simple
+    public takePhoto(): Promise<Blob | null> {
+        return this.takeBurstPhoto();
+        // Or default logic:
+        /*
+        return new Promise((resolve) => {
+            this.canvas.toBlob((blob) => {
+                resolve(blob);
+            }, 'image/png', 1.0);
+        });
+        */
+    }
+
 
     // --- MATH HELPERS ---
 
@@ -227,46 +336,13 @@ export class FaceCaptureModule {
         const pitchDiff = (midEarY - noseY);
         const pitch = pitchDiff * 140;
 
-        // YAW 2D (Ratio Method - Robust to Flat FaceMesh)
-        // Dist Nose->LeftEar vs Nose->RightEar
-        // Only look at X distance (2D projection)
+        // YAW 2D
         const dLeft = Math.abs(nose.x - leftEar.x);
         const dRight = Math.abs(nose.x - rightEar.x);
-
-        let yaw = 0;
-        // Avoid div/0
         const total = dLeft + dRight;
+        let yaw = 0;
         if (total > 0) {
-            // Ratio -0.5 to 0.5 ideally
-            // if nose is in middle, dLeft ~= dRight -> ratio = 0
-            // if nose is at LeftEar, dLeft = 0 -> ratio = -0.5 ??
-            // Let's use standard (dLeft - dRight) / total
-            // Left: dLeft < dRight (Nose closer to Left Ear visually in mirror?)
-            // Wait: Mirror mode?
-            // Std Image: LeftEar is left (x small), RightEar is right (x big), Nose x mid.
-            // Look Left (turn head left) -> Right Ear becomes visible, Left Ear hides.
-            // Nose moves Left.
-            // So Nose->LeftEar distance DECREASES.
-            // (dLeft - dRight): Small - Big = Negative.
-            // So Negative Ratio = Look Left?
-
-            // Let's assume Yaw is positive for Left Turn (Standard convention usually?)
-            // Z-depth method: LeftEar.z increases (goes back).
-            // Previous code: zDiff * 140. (LeftZ - RightZ).
-            // Turn Left: Left goes back (Z increases pos). Right comes forward (Z decreases neg).
-            // So LeftZ - RightZ = Pos - Neg = BIG POS.
-            // So Yaw Positive = Turn Left.
-
-            // Now 2D Ratio:
-            // Turn Left -> Nose moves to LeftEar. dLeft gets smaller.
-            // Ratio = (dRight - dLeft) / total?
-            // Turn Left: dRight is big, dLeft is small. Ratio = Pos.
-            // Turn Right: dRight is small, dLeft is big. Ratio = Neg.
-            // YES.
-
             const ratio = (dRight - dLeft) / total;
-            // Map ratio (0 to ~0.8) to degrees (0 to ~90)
-            // Empirical: Ratio 0.6 is about 45-50 degrees profile.
             yaw = ratio * 90;
         }
 
@@ -276,11 +352,8 @@ export class FaceCaptureModule {
     private determineZone(pose: Pose): TargetZone | null {
         const { yaw } = pose;
 
-        // Center: 0 +/- 15
         if (Math.abs(yaw) < 15) return 'center';
 
-        // Relaxed Side Logic
-        // 20 degrees is enough to start "Side"
         if (yaw >= 20) return 'left';
         if (yaw <= -20) return 'right';
 
@@ -316,7 +389,7 @@ export class FaceCaptureModule {
             if (this.lockedScale && currentZone !== 'center') {
                 targetScale = this.lockedScale;
             } else {
-                // Height-based Scaling (Forehead to Chin)
+                // Height-based Scaling
                 const top = landmarks[10];
                 const bottom = landmarks[152];
                 const hDx = (top.x - bottom.x) * width;
@@ -329,12 +402,11 @@ export class FaceCaptureModule {
                     targetScale = desiredHeightPx / (faceHeightPx + 1);
                     targetScale = Math.max(1.0, Math.min(targetScale, 4.0));
                 } else {
-                    // If we drift into side without lock, keep current?
                     targetScale = this.currentScale;
                 }
             }
 
-            // 3. Face Center (Nose Bridge)
+            // 3. Face Center
             const nose = landmarks[6];
             targetCx = nose.x * width;
             targetCy = nose.y * height;
@@ -348,11 +420,10 @@ export class FaceCaptureModule {
             const approxDist = 4.0 / (irisDist + 0.001);
             this.distance = Math.round(approxDist);
 
-            // Normalize Distance for UI Progress (Optimal: 50-90)
+            // Normalize Distance
             const optimalCenter = 70;
-            const maxDiff = 40; // Range +/- 40 from 70 (30-110)
+            const maxDiff = 40;
             const diff = Math.abs(this.distance - optimalCenter);
-            // 1.0 = Perfect (70), 0.0 = Far off (>110 or <30)
             distanceProgress = Math.max(0, 1.0 - (diff / maxDiff));
 
             if (this.distance < 50) message = "Too close!";
@@ -363,16 +434,9 @@ export class FaceCaptureModule {
 
             // 5. Stability Logic
             const now = performance.now();
-
-            // Requirements for stability:
-            // 1. Must be in the zone (Front/Left/Right)
-            // 2. Must be in optimal distance range (distanceProgress > 0.8) OR Logic: Side views ignore distance because scale is locked.
             const distanceGood = distanceProgress > 0.8;
-            // Relaxed stability for side views since tracking is harder
-            // If lockedScale is active (Front captured), we allow stability even if distance weird
             const canStabilize = distanceGood || (!!this.lockedScale);
 
-            // Reset stability if zone changed
             if (currentZone && currentZone !== this.lastZone) {
                 this.lastZone = currentZone;
                 this.zoneEnterTime = now;
@@ -380,25 +444,18 @@ export class FaceCaptureModule {
             }
 
             if (currentZone && canStabilize) {
-                // If we are in the same zone for X ms
                 const elapsed = now - this.zoneEnterTime;
                 this.stabilityProgress = Math.min(100, (elapsed / this.STABILITY_THRESHOLD_MS) * 100);
             } else {
-                // Decay stability if conditions lost
                 this.stabilityProgress = Math.max(0, this.stabilityProgress - 5);
-                // Update zone entry time so we don't jump to 100 instantly when conditions return
                 this.zoneEnterTime = now;
             }
 
         } else {
             this.faceFound = false;
-            // PERSISTENCE: 
             targetScale = this.currentScale; // Keep last known scale
-            // targetCx/Cy - keep last known or center? 
-            // Let's drift back to center slowly?
             targetCx = width / 2;
             targetCy = height / 2;
-
             this.stabilityProgress = 0;
             message = "No face";
             distanceProgress = 0;
@@ -411,13 +468,14 @@ export class FaceCaptureModule {
         this.currentCy = this.currentCy * (1 - alpha) + targetCy * alpha;
 
         // 7. Draw
-        this.ctx.save();
-        this.ctx.translate(width / 2, height / 2);
-        this.ctx.scale(-this.currentScale, this.currentScale);
-        this.ctx.translate(-this.currentCx, -this.currentCy);
-
-        this.ctx.drawImage(results.image, 0, 0, width, height);
-        this.ctx.restore();
+        if (!this.isBursting) {
+            this.ctx.save();
+            this.ctx.translate(width / 2, height / 2);
+            this.ctx.scale(-this.currentScale, this.currentScale);
+            this.ctx.translate(-this.currentCx, -this.currentCy);
+            this.ctx.drawImage(results.image, 0, 0, width, height);
+            this.ctx.restore();
+        }
 
         // 8. Callbacks
         if (this.onFrameProcessed) {
@@ -431,16 +489,9 @@ export class FaceCaptureModule {
                 currentZone,
                 isStable: this.stabilityProgress >= 100,
                 progress: this.stabilityProgress,
-                distanceProgress
+                distanceProgress,
+                isBursting: this.isBursting
             });
         }
-    }
-
-    public takePhoto(): Promise<Blob | null> {
-        return new Promise((resolve) => {
-            this.canvas.toBlob((blob) => {
-                resolve(blob);
-            }, 'image/png', 1.0);
-        });
     }
 }
