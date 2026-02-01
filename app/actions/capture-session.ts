@@ -126,3 +126,22 @@ export async function getCaptureUploadUrl(sessionId: string): Promise<{ url: str
 
     return { url, key };
 }
+
+// Mobile: Upload directly via Server Action (Bypasses CORS)
+export async function uploadCaptureImage(sessionId: string, zone: string, formData: FormData) {
+    const file = formData.get('file') as File;
+    if (!file) throw new Error("No file uploaded");
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    // Use consistent naming: captures/{session}/{zone}.png
+    const key = `captures/${sessionId}/${zone}.png`;
+
+    await r2.send(new PutObjectCommand({
+        Bucket: R2_BUCKET_NAME,
+        Key: key,
+        Body: buffer,
+        ContentType: "image/png"
+    }));
+
+    return { success: true, key };
+}

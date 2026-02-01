@@ -221,17 +221,54 @@ export class FaceCaptureModule {
         const rollRad = Math.atan2(dy, dx);
         const roll = rollRad * (180 / Math.PI);
 
-        // YAW
-        // Use Z-depth difference for robustness
-        const zDiff = (leftEar.z - rightEar.z);
-        // Tunable constant
-        const yaw = zDiff * 140;
-
         // PITCH
         const midEarY = (leftEar.y + rightEar.y) / 2;
         const noseY = nose.y;
         const pitchDiff = (midEarY - noseY);
         const pitch = pitchDiff * 140;
+
+        // YAW 2D (Ratio Method - Robust to Flat FaceMesh)
+        // Dist Nose->LeftEar vs Nose->RightEar
+        // Only look at X distance (2D projection)
+        const dLeft = Math.abs(nose.x - leftEar.x);
+        const dRight = Math.abs(nose.x - rightEar.x);
+
+        let yaw = 0;
+        // Avoid div/0
+        const total = dLeft + dRight;
+        if (total > 0) {
+            // Ratio -0.5 to 0.5 ideally
+            // if nose is in middle, dLeft ~= dRight -> ratio = 0
+            // if nose is at LeftEar, dLeft = 0 -> ratio = -0.5 ??
+            // Let's use standard (dLeft - dRight) / total
+            // Left: dLeft < dRight (Nose closer to Left Ear visually in mirror?)
+            // Wait: Mirror mode?
+            // Std Image: LeftEar is left (x small), RightEar is right (x big), Nose x mid.
+            // Look Left (turn head left) -> Right Ear becomes visible, Left Ear hides.
+            // Nose moves Left.
+            // So Nose->LeftEar distance DECREASES.
+            // (dLeft - dRight): Small - Big = Negative.
+            // So Negative Ratio = Look Left?
+
+            // Let's assume Yaw is positive for Left Turn (Standard convention usually?)
+            // Z-depth method: LeftEar.z increases (goes back).
+            // Previous code: zDiff * 140. (LeftZ - RightZ).
+            // Turn Left: Left goes back (Z increases pos). Right comes forward (Z decreases neg).
+            // So LeftZ - RightZ = Pos - Neg = BIG POS.
+            // So Yaw Positive = Turn Left.
+
+            // Now 2D Ratio:
+            // Turn Left -> Nose moves to LeftEar. dLeft gets smaller.
+            // Ratio = (dRight - dLeft) / total?
+            // Turn Left: dRight is big, dLeft is small. Ratio = Pos.
+            // Turn Right: dRight is small, dLeft is big. Ratio = Neg.
+            // YES.
+
+            const ratio = (dRight - dLeft) / total;
+            // Map ratio (0 to ~0.8) to degrees (0 to ~90)
+            // Empirical: Ratio 0.6 is about 45-50 degrees profile.
+            yaw = ratio * 90;
+        }
 
         return { yaw, pitch, roll };
     }
@@ -242,12 +279,10 @@ export class FaceCaptureModule {
         // Center: 0 +/- 15
         if (Math.abs(yaw) < 15) return 'center';
 
-        // Simplified Side Logic
-        // Left Turn: Positive Yaw (Nose moves left relative to ears)
-        // Right Turn: Negative Yaw
-
-        if (yaw >= 25) return 'left';
-        if (yaw <= -25) return 'right';
+        // Relaxed Side Logic
+        // 20 degrees is enough to start "Side"
+        if (yaw >= 20) return 'left';
+        if (yaw <= -20) return 'right';
 
         return null;
     }
@@ -289,9 +324,14 @@ export class FaceCaptureModule {
                 const faceHeightPx = Math.sqrt(hDx * hDx + hDy * hDy);
 
                 const desiredHeightPx = height * this.targetFaceHeightRatio;
-                targetScale = desiredHeightPx / (faceHeightPx + 1);
-                // Clamp scale reasonably (1.0 to 4.0)
-                targetScale = Math.max(1.0, Math.min(targetScale, 4.0));
+                // Only calibrate scale if in center zone for stability
+                if (currentZone === 'center') {
+                    targetScale = desiredHeightPx / (faceHeightPx + 1);
+                    targetScale = Math.max(1.0, Math.min(targetScale, 4.0));
+                } else {
+                    // If we drift into side without lock, keep current?
+                    targetScale = this.currentScale;
+                }
             }
 
             // 3. Face Center (Nose Bridge)
@@ -328,6 +368,8 @@ export class FaceCaptureModule {
             // 1. Must be in the zone (Front/Left/Right)
             // 2. Must be in optimal distance range (distanceProgress > 0.8) OR Logic: Side views ignore distance because scale is locked.
             const distanceGood = distanceProgress > 0.8;
+            // Relaxed stability for side views since tracking is harder
+            // If lockedScale is active (Front captured), we allow stability even if distance weird
             const canStabilize = distanceGood || (!!this.lockedScale);
 
             // Reset stability if zone changed
@@ -353,7 +395,6 @@ export class FaceCaptureModule {
             // PERSISTENCE: 
             targetScale = this.currentScale; // Keep last known scale
             // targetCx/Cy - keep last known or center? 
-            // If we reset to center, image jumps. If we keep last known, it might be weird.
             // Let's drift back to center slowly?
             targetCx = width / 2;
             targetCy = height / 2;
