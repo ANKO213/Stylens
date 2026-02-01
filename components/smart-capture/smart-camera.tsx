@@ -164,7 +164,7 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
     // Better: Make the callback call a stable function or use refs entirely inside it.
 
     // We update the callback ref pattern
-    const onFrameRef = useRef<(stats: FrameStats) => void>();
+    const onFrameRef = useRef<((stats: FrameStats) => void) | undefined>(undefined);
 
     useEffect(() => {
         onFrameRef.current = (stats: FrameStats) => {
