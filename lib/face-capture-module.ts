@@ -263,15 +263,9 @@ export class FaceCaptureModule {
                 throw new Error("Low light detected. Increase brightness.");
             }
 
-            // 2. Sharpness Check
-            const sharpness = calculateSharpness(imageData);
-
-            // Threshold for "Too Blurry"
-            // If < 15, it's likely motion blur or out of focus.
-            if (sharpness < 15) {
-                console.warn("Blurry frame rejected, sharpness:", sharpness);
-                throw new Error("Too Blurry! Hold steady.");
-            }
+            // 2. Sharpness Check (Disabled per user request)
+            // const sharpness = calculateSharpness(imageData);
+            // if (sharpness < 15) ...
 
             // 3. Convert to Blob (JPEG 0.95)
             // Use our helper from image-processing
