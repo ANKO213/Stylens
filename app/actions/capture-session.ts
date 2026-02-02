@@ -1,7 +1,7 @@
 "use server";
 
 import { r2, R2_BUCKET_NAME } from "@/lib/r2";
-import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 import { createClient } from "@/utils/supabase/server";
@@ -44,6 +44,31 @@ export async function createCaptureSession(): Promise<{ id: string; url: string 
         createdAt: Date.now(),
         userEmail: user?.email
     };
+
+    // CLEANUP: Clear "Avatar 1" folder before starting new session
+    if (user?.email) {
+        try {
+            const prefix = `avatars/${user.email}/Avatar 1/`;
+            const listCmd = new ListObjectsV2Command({
+                Bucket: R2_BUCKET_NAME,
+                Prefix: prefix
+            });
+            const listRes = await r2.send(listCmd);
+
+            if (listRes.Contents && listRes.Contents.length > 0) {
+                const objectsToDelete = listRes.Contents.map(obj => ({ Key: obj.Key }));
+                const deleteCmd = new DeleteObjectsCommand({
+                    Bucket: R2_BUCKET_NAME,
+                    Delete: { Objects: objectsToDelete }
+                });
+                await r2.send(deleteCmd);
+                console.log(`Cleared ${objectsToDelete.length} files from ${prefix}`);
+            }
+        } catch (e) {
+            console.error("Failed to cleanup Avatar 1 folder", e);
+            // Allow session to continue even if cleanup fails
+        }
+    }
 
     // Save initial state
     await r2.send(new PutObjectCommand({
@@ -129,7 +154,7 @@ export async function uploadCaptureImage(sessionId: string, zone: string, formDa
     let key = `captures/${sessionId}/${zone}.jpg`;
 
     if (sessionState.userEmail) {
-        key = `avatars/${sessionState.userEmail}/scans/${zone}.jpg`;
+        key = `avatars/${sessionState.userEmail}/Avatar 1/${zone}.jpg`;
     }
 
     await r2.send(new PutObjectCommand({

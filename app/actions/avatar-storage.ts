@@ -122,6 +122,9 @@ export async function deleteAvatar(avatarId: string) {
 
     const indexKey = `avatars/${user.email}/${INDEX_FILE}`;
 
+    // Safety: Prevent empty ID deletion
+    if (!avatarId) return { error: "Invalid ID" };
+
     // 1. Update Index
     const existingData = await getR2Object(indexKey);
     if (!existingData) return { success: true }; // Already empty
