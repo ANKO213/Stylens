@@ -253,8 +253,24 @@ export class FaceCaptureModule {
 
             if (!captureCtx) throw new Error("Failed to init canvas context");
 
-            // Draw current frame
+            // Apply Zoom / Crop (Match UI view)
+            // Note: UI coordinates (currentCx/Cy) are based on display canvas size.
+            // We must map them to the video resolution.
+            const displayW = this.canvas.width;
+            const displayH = this.canvas.height;
+            const scaleX = videoW / displayW;
+            const scaleY = videoH / displayH;
+
+            const vidCx = this.currentCx * scaleX;
+            const vidCy = this.currentCy * scaleY;
+
+            captureCtx.save();
+            captureCtx.translate(videoW / 2, videoH / 2);
+            captureCtx.scale(-this.currentScale, this.currentScale); // Mirrored & Scaled like UI
+            captureCtx.translate(-vidCx, -vidCy);
             captureCtx.drawImage(this.video, 0, 0, videoW, videoH);
+            captureCtx.restore();
+
             const imageData = captureCtx.getImageData(0, 0, videoW, videoH);
 
             // 1. Light Check
