@@ -4,26 +4,25 @@ import { r2, R2_BUCKET_NAME } from "@/lib/r2";
 import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
+import { createClient } from "@/utils/supabase/server";
+
+// ... existing imports
+
 export interface CaptureSessionState {
     id: string;
     status: 'waiting' | 'scanning' | 'captured' | 'completed';
     imageUrl?: string; // Final high-res image
     createdAt: number;
+    userEmail?: string;
 }
 
-const SESSION_TTL = 1000 * 60 * 15; // 15 minutes
-
 import { networkInterfaces } from "os";
-
-// ... existing imports
 
 // Helper to find local LAN IP
 function getLocalIp() {
     const nets = networkInterfaces();
     for (const name of Object.keys(nets)) {
         for (const net of nets[name]!) {
-            // Skip over non-IPv4 and internal (i.e. 127.0.0.1) addresses
-            // 'IPv4' is in Node <= 17, from 18 it's a number 4 or string family: 'IPv4'
             const familyV4Value = typeof net.family === 'string' ? 'IPv4' : 4
             if (net.family === familyV4Value && !net.internal) {
                 return net.address;
@@ -35,11 +34,15 @@ function getLocalIp() {
 
 // Create a new session for the desktop user
 export async function createCaptureSession(): Promise<{ id: string; url: string }> {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
     const id = crypto.randomUUID();
     const state: CaptureSessionState = {
         id,
         status: 'waiting',
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        userEmail: user?.email
     };
 
     // Save initial state
@@ -50,7 +53,6 @@ export async function createCaptureSession(): Promise<{ id: string; url: string 
         ContentType: "application/json",
     }));
 
-    // Determine Base URL
     // Determine Base URL
     // Priority: Env Var (if set) -> Local IP (if dev) -> Localhost
     let baseUrl = process.env.NEXT_PUBLIC_APP_URL;
@@ -78,12 +80,11 @@ export async function createCaptureSession(): Promise<{ id: string; url: string 
 
 // Mobile: Update status or set uploaded image
 export async function updateSessionStatus(id: string, status: CaptureSessionState['status'], imageUrl?: string) {
-    // Read current to preserve fields if needed, or just overwrite since simple state
     const state: CaptureSessionState = {
         id,
         status,
         imageUrl,
-        createdAt: Date.now() // Update timestamp to keep alive?
+        createdAt: Date.now()
     };
 
     await r2.send(new PutObjectCommand({
@@ -111,37 +112,38 @@ export async function getSessionStatus(id: string): Promise<CaptureSessionState 
     }
 }
 
-// Mobile: Get presigned URL to upload the high-quality capture directly
-export async function getCaptureUploadUrl(sessionId: string): Promise<{ url: string; key: string }> {
-    const key = `captures/${sessionId}/${Date.now()}.png`;
-
-    // Create presigned URL for PUT
-    const command = new PutObjectCommand({
-        Bucket: R2_BUCKET_NAME,
-        Key: key,
-        ContentType: 'image/png',
-    });
-
-    const url = await getSignedUrl(r2, command, { expiresIn: 300 }); // 5 min
-
-    return { url, key };
-}
-
 // Mobile: Upload directly via Server Action (Bypasses CORS)
 export async function uploadCaptureImage(sessionId: string, zone: string, formData: FormData) {
     const file = formData.get('file') as File;
     if (!file) throw new Error("No file uploaded");
 
+    // Retrieve session checking for email
+    const sessionState = await getSessionStatus(sessionId);
+    if (!sessionState) throw new Error("Invalid Session");
+
     const buffer = Buffer.from(await file.arrayBuffer());
-    // Use consistent naming: captures/{session}/{zone}.png
-    const key = `captures/${sessionId}/${zone}.png`;
+
+    // Determine Key:
+    // If we have an email, save to permanent storage (overwriting old scans)
+    // Else fallback to temp session folder
+    let key = `captures/${sessionId}/${zone}.jpg`;
+
+    if (sessionState.userEmail) {
+        key = `avatars/${sessionState.userEmail}/scans/${zone}.jpg`;
+    }
 
     await r2.send(new PutObjectCommand({
         Bucket: R2_BUCKET_NAME,
         Key: key,
         Body: buffer,
-        ContentType: "image/png"
+        ContentType: "image/jpeg"
     }));
+
+    // If this is center, we might want to update the avatar logic or just let the desktop pulling handle it
+    // The desktop will see 'captured' status and then can download from the new path if needed?
+    // Actually, updateSessionStatus should probably point to this new URL if needed, 
+    // BUT for now the 'status' polling on desktop might need to know WHERE to look.
+    // For simplicity, let's just return the key so the client can update the session with it.
 
     return { success: true, key };
 }

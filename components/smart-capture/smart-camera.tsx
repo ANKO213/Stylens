@@ -160,7 +160,7 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
 
         try {
             const formData = new FormData();
-            formData.append('file', blob, `${zone}.png`);
+            formData.append('file', blob, `${zone}.jpg`);
 
             const res = await uploadCaptureImage(sessionId, zone, formData);
             if (res && res.key) {
@@ -190,8 +190,8 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
 
         if (moduleRef.current) {
             try {
-                // BURST CAPTURE
-                const blob = await moduleRef.current.takeBurstPhoto();
+                // SINGLE SHOT CAPTURE
+                const blob = await moduleRef.current.takePhoto();
 
                 if (blob) {
                     capturesRef.current.set(zone, blob);
@@ -212,8 +212,10 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
 
                 if (e.message.includes("Low light")) {
                     toast.error("Too Dark! Increase brightness.", { id: 'capture-toast' });
+                } else if (e.message.includes("Blurry")) {
+                    toast.error("Too Blurry! Hold Steady.", { id: 'capture-toast' });
                 } else {
-                    toast.error("Turn failed. Try again.", { id: 'capture-toast' });
+                    toast.error("Capture failed. Try again.", { id: 'capture-toast' });
                 }
             }
         }
@@ -327,7 +329,7 @@ export function SmartCamera({ sessionId }: SmartCameraProps) {
                 {isEnhancing && (
                     <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm">
                         <Loader2 className="w-12 h-12 text-white animate-spin mb-4" />
-                        <span className="text-white font-bold tracking-widest uppercase text-sm">Enhancing Photo...</span>
+                        <span className="text-white font-bold tracking-widest uppercase text-sm">Capturing...</span>
                         <span className="text-white/50 text-xs mt-2">Hold steady</span>
                     </div>
                 )}

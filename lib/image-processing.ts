@@ -127,6 +127,9 @@ export async function imageDataToBlob(imageData: ImageData): Promise<Blob> {
 
     ctx.putImageData(imageData, 0, 0);
 
-    // High quality export
-    return await canvas.convertToBlob({ type: 'image/png' });
+    // High quality export (JPEG 0.95)
+    return await canvas.convertToBlob({
+        type: 'image/jpeg',
+        quality: 0.95
+    });
 }

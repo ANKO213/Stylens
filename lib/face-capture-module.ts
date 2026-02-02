@@ -227,83 +227,68 @@ export class FaceCaptureModule {
 
     // --- SUPER-RESOLUTION BURST (Optimized) ---
 
-    public async takeBurstPhoto(): Promise<Blob> {
+    // --- SINGLE SHOT WITH SHARPNESS CHECK ---
+
+    public async takePhoto(): Promise<Blob> {
         if (this.isBursting) throw new Error("Already capturing");
         this.isBursting = true;
 
-        let accumulator: FrameAccumulator | null = null;
-
         try {
-            // 1. Setup Capture
-            const MAX_FRAMES = 12; // Reduced from 20 to safe memory
             const videoW = this.video.videoWidth;
             const videoH = this.video.videoHeight;
 
-            const captureCanvas = new OffscreenCanvas(videoW, videoH);
-            const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
+            // Use OffscreenCanvas if available, otherwise DOM canvas
+            let captureCtx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null = null;
+            let captureCanvas: OffscreenCanvas | HTMLCanvasElement;
 
-            if (!captureCtx) throw new Error("Failed to init offscreen canvas");
-
-            // Initialize Accumulator (130MB buffer)
-            accumulator = new FrameAccumulator(videoW, videoH);
-
-            console.log(`Starting Burst: ${videoW}x${videoH} for ${MAX_FRAMES} frames`);
-
-            // 2. Loop
-            let validFrames = 0;
-
-            for (let i = 0; i < MAX_FRAMES; i++) {
-                // Draw current video frame to offscreen
-                // Note: captureCtx is reused
-                captureCtx.drawImage(this.video, 0, 0);
-                const imageData = captureCtx.getImageData(0, 0, videoW, videoH);
-
-                // 3. Light Check (First Frame Only - Fail Fast)
-                if (i === 0) {
-                    const light = analyzeLight(imageData);
-                    if (light.isLowLight) {
-                        throw new Error("Low light detected. Increase brightness.");
-                    }
-                }
-
-                // 4. Sharpness Check
-                const sharpness = calculateSharpness(imageData);
-
-                // Simple threshold logic: If < 10 (very blurry), discard.
-                // Typical sharpness for detailed face ~20-50.
-                if (sharpness > 5) {
-                    accumulator.add(imageData);
-                    validFrames++;
-                }
-
-                // Small delay to allow camera sensor update 
-                // 30fps = 33ms. 
-                await new Promise(r => setTimeout(r, 40));
+            if (typeof OffscreenCanvas !== 'undefined') {
+                captureCanvas = new OffscreenCanvas(videoW, videoH);
+                captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true }) as any;
+            } else {
+                captureCanvas = document.createElement('canvas');
+                captureCanvas.width = videoW;
+                captureCanvas.height = videoH;
+                captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
             }
 
-            if (validFrames === 0) throw new Error("All frames were too blurry. Hold steady.");
+            if (!captureCtx) throw new Error("Failed to init canvas context");
 
-            // 5. Finalize
-            const stackedImageData = accumulator.getResult();
+            // Draw current frame
+            captureCtx.drawImage(this.video, 0, 0, videoW, videoH);
+            const imageData = captureCtx.getImageData(0, 0, videoW, videoH);
 
-            // Cleanup
-            accumulator.dispose();
-            accumulator = null;
+            // 1. Light Check
+            const light = analyzeLight(imageData);
+            if (light.isLowLight) {
+                throw new Error("Low light detected. Increase brightness.");
+            }
 
-            // 7. Convert to Blob
+            // 2. Sharpness Check
+            const sharpness = calculateSharpness(imageData);
+
+            // Threshold for "Too Blurry"
+            // If < 15, it's likely motion blur or out of focus.
+            if (sharpness < 15) {
+                console.warn("Blurry frame rejected, sharpness:", sharpness);
+                throw new Error("Too Blurry! Hold steady.");
+            }
+
+            // 3. Convert to Blob (JPEG 0.95)
+            // Use our helper from image-processing
+            const blob = await imageDataToBlob(imageData);
+
             this.isBursting = false;
-            return await imageDataToBlob(stackedImageData);
+            return blob;
 
         } catch (e) {
             this.isBursting = false;
-            if (accumulator) accumulator.dispose();
             throw e;
         }
     }
 
-    // Fallback if burst fails or user wants simple
-    public takePhoto(): Promise<Blob | null> {
-        return this.takeBurstPhoto();
+    // Deprecated alias
+    public takeBurstPhoto(): Promise<Blob> {
+        return this.takePhoto();
     }
 
 
@@ -419,7 +404,7 @@ export class FaceCaptureModule {
             const diff = Math.abs(this.distance - optimalCenter);
             distanceProgress = Math.max(0, 1.0 - (diff / maxDiff));
 
-            if (this.distance < 50) message = "Too close!";
+            if (this.distance < 40) message = "Too close!";
             else if (this.distance > 90) message = "Too far!";
             else message = this.faceFound ? "Hold steady" : "Look at camera";
 
