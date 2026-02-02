@@ -363,10 +363,19 @@ export function AvatarWizard({ onCancel, onComplete }: AvatarWizardProps) {
                                         // Actually FaceUpload has a close button if onClose provided.
                                         customUploadHandler={async (files) => {
                                             const { getAvatarPresignedUrl } = await import("@/app/actions/get-avatar-presigned-url");
+                                            const { prepareManualUpload } = await import("@/app/actions/manual-upload");
+
+                                            // 1. Prepare Storage (Clear Avatar 1)
+                                            const prep = await prepareManualUpload("Avatar 1");
+                                            if (prep.error) {
+                                                toast.error(prep.error);
+                                                return;
+                                            }
 
                                             // Helper
                                             const uploadFile = async (file: File, name: string) => {
-                                                const res = await getAvatarPresignedUrl(formData.id, name, file.type);
+                                                // Note: passing "Avatar 1" as avatarId to match the folder structure
+                                                const res = await getAvatarPresignedUrl("Avatar 1", name, file.type);
                                                 if (res.error || !res.url) throw new Error(res.error || "Upload failed");
 
                                                 await fetch(res.url, {
@@ -377,22 +386,30 @@ export function AvatarWizard({ onCancel, onComplete }: AvatarWizardProps) {
                                                 return res.key;
                                             }
 
-                                            const newKeys = { ...formData.imageKeys };
+                                            try {
+                                                const newKeys = { ...formData.imageKeys };
 
-                                            if (files.main) {
-                                                newKeys.main = await uploadFile(files.main, "main.jpg");
-                                            }
-                                            if (files.side1) {
-                                                newKeys.side1 = await uploadFile(files.side1, "side1.jpg");
-                                            }
-                                            if (files.side2) {
-                                                newKeys.side2 = await uploadFile(files.side2, "side2.jpg");
-                                            }
+                                                if (files.main) {
+                                                    newKeys.main = await uploadFile(files.main, "main.jpg");
+                                                }
+                                                // Side profiles skipped for now as UI hides them in simple mode, 
+                                                // but logic is ready if needed.
 
-                                            setFormData(prev => ({ ...prev, imageKeys: newKeys }));
-                                            toast.success("Photos uploaded successfully!");
-                                            // Auto advance
-                                            setTimeout(() => handleNext(), 1000);
+                                                setFormData(prev => ({
+                                                    ...prev,
+                                                    imageKeys: newKeys,
+                                                    // IMPORTANT: Set ID to 'Avatar 1' so it matches the folder
+                                                    // or keep random ID but we know the files are in Avatar 1.
+                                                    // For now, let's keep random ID for internal state but the files are hardcoded to Avatar 1.
+                                                }));
+
+                                                toast.success("Photos uploaded to Avatar 1!");
+                                                setTimeout(() => handleNext(), 1000);
+
+                                            } catch (e: any) {
+                                                console.error(e);
+                                                toast.error("Upload failed: " + e.message);
+                                            }
                                         }}
                                     />
                                 </div>

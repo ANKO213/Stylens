@@ -355,33 +355,41 @@ export function FaceUpload({ onUpload, isLoading = false, onClose, customUploadH
                     onDrop={handleDrop}
                 >
                     {/* Main Slot */}
-                    <div className="md:col-span-2 relative group">
+                    <div className="md:col-span-2 relative group flex justify-center">
                         <div
                             onClick={() => triggerSelect("main")}
                             className={cn(
-                                "h-full w-full rounded-2xl border-2 border-dashed transition-all duration-300 flex flex-col items-center justify-center cursor-pointer relative overflow-hidden min-h-[200px]",
-                                isDragging ? "border-indigo-500 bg-indigo-500/10" : "border-zinc-800 bg-zinc-900/30 hover:bg-zinc-900 hover:border-zinc-600",
+                                "relative w-full max-w-sm aspect-[3/4] rounded-2xl border-2 border-dashed transition-all duration-300 flex flex-col items-center justify-center cursor-pointer overflow-hidden bg-zinc-900/30",
+                                isDragging ? "border-indigo-500 bg-indigo-500/10" : "border-zinc-800 hover:bg-zinc-900 hover:border-zinc-600",
                                 slots.main.preview && "border-solid border-zinc-700 p-0"
                             )}
                         >
                             {slots.main.preview ? (
                                 <>
-                                    <img src={slots.main.preview} className="w-full h-full object-cover opacity-80" />
+                                    <img src={slots.main.preview} className="w-full h-full object-cover" />
+                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                        <Button variant="secondary" size="sm" className="pointer-events-none">Change Photo</Button>
+                                    </div>
                                     <button
                                         onClick={(e) => { e.stopPropagation(); clearSlot('main'); }}
-                                        className="absolute top-2 right-2 p-1 bg-black/50 rounded-full text-white hover:bg-red-500 transition-colors"
+                                        className="absolute top-3 right-3 p-2 bg-black/50 rounded-full text-white hover:bg-red-500 transition-colors z-10"
                                     >
                                         <X className="w-4 h-4" />
                                     </button>
                                 </>
                             ) : (
-                                <>
-                                    <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-                                        <Camera className="w-6 h-6 text-zinc-400" />
+                                <div className="flex flex-col items-center gap-4 p-6 text-center">
+                                    <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                        <Camera className="w-8 h-8 text-zinc-400" />
                                     </div>
-                                    <span className="text-sm font-medium text-zinc-300">Frontal Face</span>
-                                    <span className="text-xs text-zinc-600 mt-1">Drag & drop or click</span>
-                                </>
+                                    <div>
+                                        <span className="text-lg font-medium text-white block">Frontal Face</span>
+                                        <span className="text-sm text-zinc-500">Drag & drop or click to upload</span>
+                                    </div>
+                                    <Button variant="outline" className="mt-2 pointer-events-none">
+                                        <Upload className="w-4 h-4 mr-2" /> Select Photo
+                                    </Button>
+                                </div>
                             )}
                         </div>
                     </div>
